@@ -1,0 +1,197 @@
+# PII review tool: a page where users check the personal data in a text or
+# document, choose what to mask, and copy the masked result.
+#
+#   cp .env.example .env    # set PII_REVIEW_GATEWAYS at least
+#   docker compose up -d --build
+#
+# The page is published on 127.0.0.1 only; put a TLS reverse proxy in front of
+# it to offer it to others. Nothing is stored, and the services log no content.
+
+name: ${COMPOSE_PROJECT_NAME:-pii-review}
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "${LOG_MAX_SIZE:-10m}"
+    max-file: "${LOG_MAX_FILE:-3}"
+
+services:
+  pii-review:
+    logging: *logging
+    image: pii-review:0.2.0
+    build:
+      context: ./app
+      labels:
+        org.opencontainers.image.title: pii-review
+        org.opencontainers.image.description: Page that shows the personal data Presidio and a local model find and masks what the user selects
+        org.opencontainers.image.version: "0.2.0"
+        org.opencontainers.image.base.name: ghcr.io/astral-sh/uv:0.9.30-python3.13-bookworm-slim
+    user: "65532:65532"
+    environment:
+      PII_REVIEW_GATEWAYS: ${PII_REVIEW_GATEWAYS:?Set PII_REVIEW_GATEWAYS in .env}
+      PII_REVIEW_ANALYZER_URL: http://presidio-analyzer:3000
+      PII_REVIEW_ANONYMIZER_URL: http://presidio-anonymizer:3000
+      PII_REVIEW_XBERG_URL: http://xberg:8000
+      PII_REVIEW_XBERG_TIMEOUT_SECONDS: "${PII_REVIEW_XBERG_TIMEOUT_SECONDS:-1800}"
+      PII_REVIEW_LANGUAGE: ${PII_REVIEW_LANGUAGE:-en}
+      PII_REVIEW_MAX_TEXT_BYTES: "${PII_REVIEW_MAX_TEXT_BYTES:-250000000}"
+      PII_REVIEW_MAX_FILE_BYTES: "${PII_REVIEW_MAX_FILE_BYTES:-209715200}"
+      PII_REVIEW_REQUESTS_PER_MINUTE: "${PII_REVIEW_REQUESTS_PER_MINUTE:-30}"
+      # Analyzer requests in flight per analysis; keep equal to its workers.
+      PII_REVIEW_ANALYZE_PARALLEL: "${PII_REVIEW_ANALYZE_PARALLEL:-${PRESIDIO_ANALYZER_WORKERS:-2}}"
+      PII_REVIEW_ASSIST_URL: ${PII_REVIEW_ASSIST_URL:-}
+      PII_REVIEW_ASSIST_MODEL: ${PII_REVIEW_ASSIST_MODEL:-pii-assist}
+      PII_REVIEW_ASSIST_KEY: ${PII_REVIEW_ASSIST_KEY:-}
+      PII_REVIEW_ASSIST_MAX_CALLS: "${PII_REVIEW_ASSIST_MAX_CALLS:-8}"
+    ports:
+      - "${PII_REVIEW_BIND:-127.0.0.1}:${PII_REVIEW_PORT:-8080}:8080"
+    # Reaches a gateway or Ollama on the Docker host (built in on Docker
+    # Desktop, needed on Linux).
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    depends_on:
+      presidio-analyzer:
+        condition: service_healthy
+      presidio-anonymizer:
+        condition: service_healthy
+      xberg:
+        condition: service_healthy
+    # frontend: published port, gateways, and the model API.
+    # backend: Presidio. extract: Xberg only.
+    networks: [frontend, backend, extract]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "${PII_REVIEW_CPU_LIMIT:-2}"
+          # A 200 MiB upload plus its extracted text and detections.
+          memory: ${PII_REVIEW_MEMORY_LIMIT:-3g}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=5)"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  presidio-analyzer:
+    logging: *logging
+    image: pii-review-presidio-analyzer:2.2.362-1
+    build:
+      context: ./presidio
+      labels:
+        org.opencontainers.image.title: pii-review-presidio-analyzer
+        org.opencontainers.image.description: Presidio analyzer with English, German, and French spaCy pipelines
+        org.opencontainers.image.version: 2.2.362-1
+        org.opencontainers.image.base.name: mcr.microsoft.com/presidio-analyzer:2.2.362
+        org.opencontainers.image.licenses: MIT AND LGPL-LR
+    environment:
+      PRESIDIO_NLP_ENGINE: spacy
+      NLP_CONF_FILE: /app/presidio_analyzer/conf/tool-analyzer.yaml
+      ANALYZER_CONF_FILE: /app/presidio_analyzer/conf/tool-analyzer-engine.yaml
+      RECOGNIZER_REGISTRY_CONF_FILE: /app/presidio_analyzer/conf/tool-recognizers.yaml
+      WORKERS: ${PRESIDIO_ANALYZER_WORKERS:-2}
+      # Load the pipelines once before forking so workers share them (about
+      # 2.5 GiB in all instead of 2.4 GiB per worker). No control socket: the
+      # file system is read-only.
+      GUNICORN_CMD_ARGS: --no-control-socket --preload
+    volumes:
+      - ./presidio/analyzer.yaml:/app/presidio_analyzer/conf/tool-analyzer.yaml:ro
+      - ./presidio/analyzer-engine.yaml:/app/presidio_analyzer/conf/tool-analyzer-engine.yaml:ro
+      - ./presidio/recognizers.yaml:/app/presidio_analyzer/conf/tool-recognizers.yaml:ro
+    networks: [backend]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "${PRESIDIO_ANALYZER_CPU_LIMIT:-2}"
+          memory: ${PRESIDIO_ANALYZER_MEMORY_LIMIT:-4g}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/health', timeout=5)"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 60s
+
+  presidio-anonymizer:
+    logging: *logging
+    image: mcr.microsoft.com/presidio-anonymizer:2.2.362@sha256:a10a12a2a613d13cf29d3ad3641e3258444dd8c90403dd644a0a114c472c2483
+    environment:
+      WORKERS: ${PRESIDIO_ANONYMIZER_WORKERS:-2}
+      GUNICORN_CMD_ARGS: --no-control-socket
+    networks: [backend]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1g
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/health', timeout=5)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  # Document extraction with Xberg's upload API. It sits alone with the page on
+  # the internal `extract` network: no internet, so it cannot fetch anything a
+  # document links to, and local-file inputs are off (xberg/xberg-config.toml).
+  xberg:
+    logging: *logging
+    image: ghcr.io/xberg-io/xberg:1.3.10-core@sha256:f0a66d39f7322c273bb4ba2b53f5ca00dee9f2f1b3ebbec26a283017e07a865b
+    command: ["serve", "--host", "0.0.0.0", "--port", "8000", "--config", "/etc/xberg/xberg.toml"]
+    volumes:
+      - ./xberg/xberg-config.toml:/etc/xberg/xberg.toml:ro
+    environment:
+      RUST_LOG: ${XBERG_LOG_LEVEL:-warn}
+      XBERG_CACHE_DIR: /tmp/xberg-cache
+      HF_HOME: /tmp/huggingface
+      # 250 MiB: a 200 MiB upload plus multipart framing.
+      XBERG_MAX_REQUEST_BODY_BYTES: "262144000"
+      XBERG_MAX_MULTIPART_FIELD_BYTES: "262144000"
+      # Only the page calls the API, from inside the extract network; no
+      # browser origin needs it.
+      XBERG_CORS_ORIGINS: http://pii-review.invalid
+    networks: [extract]
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=${XBERG_TMP_SIZE:-1g}
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "${XBERG_CPU_LIMIT:-2}"
+          memory: ${XBERG_MEMORY_LIMIT:-4g}
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--output", "/dev/null", "http://127.0.0.1:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+networks:
+  frontend: {}
+  backend:
+    internal: true
+  extract:
+    internal: true

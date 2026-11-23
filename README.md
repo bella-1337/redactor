@@ -1,0 +1,124 @@
+# PII review
+
+A self-service page where people check the personal data in a text or document
+before they share it, choose what to mask, and copy the masked result.
+
+1. Sign in with your LiteLLM virtual key.
+2. Paste text, or upload a document of up to 200 MiB (PDF, Word, Excel,
+   PowerPoint, OpenDocument, RTF, HTML, email, or plain text).
+3. See everything that was found, grouped by type, with its score, context, and
+   a highlighted preview: names, organisations, addresses, email addresses,
+   phone numbers, IBANs, card numbers, UK NHS and National Insurance numbers,
+   and more, in English, German, and French.
+4. Choose what to mask: whole types or single items, how each type is masked
+   (replaced with its type, masked with `*`, or removed), and terms the
+   detection missed.
+5. Copy or download the masked text.
+
+Nothing is stored, nothing is sent to a cloud model, and the services log no
+content, file names, or keys.
+
+## How it works
+
+| Service | Image | Purpose |
+| --- | --- | --- |
+| `pii-review` | local build (`app/`), Python standard library only | The page and its API. Checks keys, sends documents to Xberg, text to Presidio and the local model, and masks the selection. |
+| `presidio-analyzer` | local build (`presidio/`) on `mcr.microsoft.com/presidio-analyzer:2.2.362` | Detection in English, German, and French, with organisation names, UK formats, and German and French street addresses. |
+| `presidio-anonymizer` | `mcr.microsoft.com/presidio-anonymizer:2.2.362` | Masks the selected items. |
+| `xberg` | `ghcr.io/xberg-io/xberg:1.3.10-core` | Reads documents (`xberg serve`, upload API, 250 MiB limit). |
+
+Networks: only `pii-review` is published (on `127.0.0.1` by default) and can
+reach outside the host. Presidio sits on the internal `backend` network, and
+Xberg alone with the page on the internal `extract` network, without internet
+access, so it cannot fetch anything a document links to.
+
+Two optional connections leave the host:
+
+- **Key check (required).** A key any LiteLLM gateway in `PII_REVIEW_GATEWAYS`
+  accepts (`GET /v1/models`) may use the page. Expired, blocked, and deleted
+  keys are refused; an accepted key is remembered for 60 seconds. The page
+  never calls a model with the user's key.
+- **Local model (optional).** With `PII_REVIEW_ASSIST_URL` set, a local model
+  detects each text's language and personal data Presidio's recognizers miss;
+  its finds are marked "local model". Any OpenAI-compatible API works:
+  - a LiteLLM gateway's `pii-assist` model, with a key limited to that model:
+    `PII_REVIEW_ASSIST_URL=https://<gateway>/v1`, `PII_REVIEW_ASSIST_KEY=sk-…`;
+  - Ollama on the Docker host: `PII_REVIEW_ASSIST_URL=http://host.docker.internal:11434/v1`,
+    `PII_REVIEW_ASSIST_MODEL=qwen3.5:4b`, no key.
+
+  The text is sent to that model **unmasked**: use one on this host or a
+  private network, never a cloud API. It checks the first
+  `PII_REVIEW_ASSIST_MAX_CALLS` × 4000 characters of each text (32,000 by
+  default) and takes about 3 seconds per call with `qwen3.5:4b`. If it fails,
+  the page continues with Presidio alone, in `PII_REVIEW_LANGUAGE`.
+
+## Run it
+
+```sh
+cp .env.example .env          # set PII_REVIEW_GATEWAYS, optionally the assist model
+docker compose up -d --build
+curl --fail http://127.0.0.1:8080/health
+```
+
+Open `http://127.0.0.1:8080/`. To offer the page to other people, put a TLS
+reverse proxy in front of it and keep `PII_REVIEW_BIND=127.0.0.1`.
+
+The first build downloads the German and French spaCy pipelines (about
+1.1 GB). See `.env.example` for every setting.
+
+## Sizing and limits
+
+| Item | Default | Notes |
+| --- | --- | --- |
+| Upload | 200 MiB (`PII_REVIEW_MAX_FILE_BYTES`, at most 250,000,000 bytes) | The browser sends the file as the raw request body. The page holds one copy in memory while Xberg reads it; two documents are read at a time. A 190 MiB DOCX took 19 seconds. Xberg refuses an Office file with a single embedded file over 100 MiB unpacked (its zip-bomb protection). |
+| Text analysed | all of it, up to 250,000,000 bytes (`PII_REVIEW_MAX_TEXT_BYTES`) | Analysed in 100 KB pieces that overlap by 200 characters, `PII_REVIEW_ANALYZE_PARALLEL` at a time (default: the analyzer's worker count). Measured with two workers: 9.8 MB of text in under 5 minutes (534,380 detections), masked in 25 seconds. More workers analyse faster; each adds about 0.1 GiB. The browser keeps the request open meanwhile. |
+| Preview | first 1,000,000 characters | The list shows the first 200 items of each type. Selection and masking always cover everything. |
+| Memory | page 3g, analyzer 4g, Xberg 4g, anonymizer 1g | Measured peaks: page 511 MiB and analyzer 3.3 GiB for the 9.8 MB text; page 210 MiB for the 190 MiB upload. The analyzer preloads its English, German, and French pipelines, shared by its workers. Raise the page's limit for texts much larger than 10 MB. |
+| Requests | 30 per key per minute; 10 rejected keys per address per minute; 8 at once | |
+
+Scanned documents without a text layer go through Xberg's OCR, which is slower;
+a document with no text at all is refused with a message.
+
+## Data protection
+
+- No storage: uploads, text, detections, and results exist only in memory for
+  the duration of a request. The page has a read-only file system and no
+  volume.
+- No content in logs: the page logs the method, route, status, and duration of
+  each request and that a key was rejected. Xberg logs at `warn` by default.
+- The original file name never leaves the page: Xberg gets `document.<ext>`.
+- The key stays in the browser tab's memory, never in cookies or storage.
+- Strict Content Security Policy, `no-referrer`, `no-store`, no framing, no
+  cross-origin requests; user content is rendered as text, never as HTML.
+- Masking is pseudonymisation, not anonymisation. Detection misses some
+  personal data and flags some harmless text: read the result before sharing
+  it.
+
+## Detection details
+
+- `presidio/analyzer.yaml`: spaCy model per language and label mapping
+  (people, organisations, places, dates, nationalities).
+- `presidio/recognizers.yaml`: Presidio's default recognizers for English,
+  German, and French; credit cards in all three; UK National Insurance numbers,
+  passports, and postcodes switched on (vehicle registrations stay off); and
+  German and French street-address recognizers that mask the whole address.
+  `tests/test_presidio_recognizers.py` lists what must and must not match.
+- `app/pii_review/pii_assist_prompt.json`: the local model's prompt and answer
+  schema. Only items that occur verbatim in the text are used.
+
+## Development
+
+```sh
+python3 -m unittest discover -s tests
+```
+
+The service has no third-party Python dependencies.
+
+## Licences
+
+The upstream images and models keep their own licences: Presidio (MIT), Xberg
+(see its image), spaCy `en_core_web_lg` and `de_core_news_lg` (MIT), and
+`fr_core_news_lg` (LGPL-LR, the Lesser General Public License for Linguistic
+Resources). LGPL-LR obligations apply when the analyzer image is distributed
+outside your organisation; review them before doing so. This repository does
+not yet declare a licence for its own code.

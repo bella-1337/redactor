@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>PII Review</title>
+  <link rel="stylesheet" href="/app.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <header class="top">
+    <h1>PII review</h1>
+    <p class="lede">See which personal data a text or document contains, choose what to mask, and copy the masked result. Nothing is stored, and nothing is sent to a cloud model.</p>
+  </header>
+
+  <main>
+    <section class="card" aria-labelledby="step-key">
+      <h2 id="step-key"><span class="step">1</span> Your key</h2>
+      <label for="api-key">LiteLLM virtual key</label>
+      <input id="api-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-…">
+      <p class="hint">The same key you use for the gateway. It stays in this tab's memory and is cleared when you close or reload the page.</p>
+    </section>
+
+    <section class="card" aria-labelledby="step-input">
+      <h2 id="step-input"><span class="step">2</span> Text or document</h2>
+      <label for="input-text">Paste text</label>
+      <textarea id="input-text" rows="10" spellcheck="false" placeholder="Paste the text you want to check"></textarea>
+      <div class="file-row">
+        <label for="input-file" class="file-label">…or upload a document</label>
+        <input id="input-file" type="file">
+        <button id="clear-file" type="button" class="link" hidden>Remove document</button>
+      </div>
+      <p id="file-hint" class="hint"></p>
+      <div class="actions">
+        <button id="analyze" type="button" class="primary">Analyse</button>
+        <span id="analyze-status" class="status" role="status" aria-live="polite"></span>
+      </div>
+    </section>
+
+    <section id="review" class="card" aria-labelledby="step-review" hidden>
+      <h2 id="step-review"><span class="step">3</span> Choose what to mask</h2>
+      <p id="summary" class="summary"></p>
+      <p class="hint">Detection is automatic and can miss personal data or flag harmless text. Untick anything that should stay, and add anything it missed below.</p>
+
+      <div class="toolbar">
+        <label for="default-operator">Mask selected items by</label>
+        <select id="default-operator">
+          <option value="replace">replacing with the type, e.g. &lt;PERSON&gt;</option>
+          <option value="mask">masking with *****</option>
+          <option value="redact">removing them</option>
+        </select>
+        <button id="select-all" type="button" class="link">Select all</button>
+        <button id="select-none" type="button" class="link">Select none</button>
+      </div>
+
+      <div id="groups" class="groups"></div>
+
+      <h3>Preview</h3>
+      <p class="hint">Highlighted text will be masked. Click a highlight to include or exclude it.</p>
+      <div id="preview" class="preview" tabindex="0"></div>
+
+      <label for="custom-terms">Also mask these exact terms (one per line, case-insensitive)</label>
+      <textarea id="custom-terms" rows="3" spellcheck="false" placeholder="Project Falcon&#10;client reference 4471"></textarea>
+
+      <div class="actions">
+        <button id="mask" type="button" class="primary">Mask selected</button>
+        <span id="mask-status" class="status" role="status" aria-live="polite"></span>
+      </div>
+    </section>
+
+    <section id="result" class="card" aria-labelledby="step-result" hidden>
+      <h2 id="step-result"><span class="step">4</span> Masked result</h2>
+      <p id="result-summary" class="summary"></p>
+      <textarea id="output" rows="12" readonly spellcheck="false"></textarea>
+      <div class="actions">
+        <button id="copy" type="button">Copy</button>
+        <button id="download" type="button">Download .txt</button>
+        <span id="copy-status" class="status" role="status" aria-live="polite"></span>
+      </div>
+      <p class="hint">Masking is pseudonymisation, not anonymisation: check the result before you share it.</p>
+    </section>
+  </main>
+</body>
+</html>

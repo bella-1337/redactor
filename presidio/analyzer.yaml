@@ -1,0 +1,42 @@
+# NLP configuration of the tool's Presidio analyzer: English, German, and
+# French spaCy pipelines (presidio/Dockerfile), with organisation names (ORG)
+# detected. See analyzer-engine.yaml and recognizers.yaml.
+nlp_engine_name: spacy
+models:
+  - lang_code: en
+    model_name: en_core_web_lg
+  # German and French models are installed by presidio/Dockerfile.
+  - lang_code: de
+    model_name: de_core_news_lg
+  - lang_code: fr
+    model_name: fr_core_news_lg
+
+ner_model_configuration:
+  model_to_presidio_entity_mapping:
+    PER: PERSON
+    PERSON: PERSON
+    ORG: ORGANIZATION
+    ORGANIZATION: ORGANIZATION
+    NORP: NRP
+    FAC: LOCATION
+    LOC: LOCATION
+    LOCATION: LOCATION
+    GPE: LOCATION
+    DATE: DATE_TIME
+    TIME: DATE_TIME
+
+  low_confidence_score_multiplier: 0.4
+  low_score_entity_names: []
+  labels_to_ignore:
+    # MISC: the German and French models' catch-all label (events, works, nationalities).
+    - MISC
+    - CARDINAL
+    - EVENT
+    - LANGUAGE
+    - LAW
+    - MONEY
+    - ORDINAL
+    - PERCENT
+    - PRODUCT
+    - QUANTITY
+    - WORK_OF_ART

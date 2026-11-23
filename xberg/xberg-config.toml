@@ -1,0 +1,6 @@
+# Xberg configuration for the PII review tool. Xberg here only reads uploaded
+# bytes: local paths and file:// URIs are refused, and it runs on an internal
+# network with no internet, so it cannot fetch URLs either.
+[url]
+allow_local_file_inputs = false
+allow_file_uris = false
