@@ -11,7 +11,7 @@ from typing import Any, Mapping
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "app"))
 
-from pii_review import review, server  # noqa: E402
+from pii_review import languages, review, server  # noqa: E402
 from pii_review.review import (  # noqa: E402
     HttpResponse,
     KeyValidator,
@@ -581,7 +581,8 @@ class AssistTests(unittest.TestCase):
         transport, calls = self.gateway({"language": "de", "items": []})
         config = settings(assist_url="http://host.docker.internal:11434/v1", assist_model="qwen3.5:4b")
         reviewer = Reviewer(config, Presidio(config, transport), None, review.AssistClient(config, transport))
-        self.assertEqual(reviewer.analyze({"text": SAMPLE})["language"], "de")
+        # No common words, so the model's language applies.
+        self.assertEqual(reviewer.analyze({"text": "Zelda Quartermaine, zq@example.test, Berlin."})["language"], "de")
         chat = next(call for call in calls if call[0].endswith("/chat/completions"))
         self.assertEqual(chat[0], "http://host.docker.internal:11434/v1/chat/completions")
         self.assertNotIn("Authorization", chat[1])
@@ -593,6 +594,91 @@ class AssistTests(unittest.TestCase):
         self.assertNotIn("sk-abcdefgh", repr(loaded))
         with self.assertRaises(ValueError):
             review.settings_from_environment({"PII_REVIEW_GATEWAYS": "http://g:4000", "PII_REVIEW_ASSIST_KEY": "bad key"})
+
+
+MIXED = (
+    "Dear Mr Zelda Quartermaine,\n\n"
+    "Your file is with us and we will write to you from Berlin.\n\n"
+    "Sehr geehrte Frau Brunhilde Kesselmeyer,\n\n"
+    "Ihre Unterlagen liegen in der Lindenstraße 12, 80331 München.\n"
+    "IBAN DE89 3704 0044 0532 0130 00\n\n"
+    "Telefon 089 1234567\n\n"
+    "Bonjour Monsieur Théophile Lavergne,\n\n"
+    "Votre dossier est au 3, place de la Comédie, 34000 Montpellier.\n"
+)
+
+
+class LanguageSectionTests(unittest.TestCase):
+    def test_paragraphs_need_clear_evidence(self) -> None:
+        for paragraph, expected in (
+            ("Dear Mr Thornbury,", "en"),
+            ("Sehr geehrte Frau Kesselmeyer,", "de"),
+            ("Bonjour Monsieur Lavergne,", "fr"),
+            ("Meeting am Montag mit dem Team", "de"),
+            ("Le rendez-vous est confirmé pour lundi.", "fr"),
+            # One common word, none, or no clear majority: no decision.
+            ("Telefon 089 1234567", None),
+            ("IBAN DE89 3704 0044 0532 0130 00", None),
+            ("Zelda Quartermaine, zq@example.test", None),
+            ("the and der und", None),
+            # Words common in two of the languages do not count.
+            ("was an in so on me place plus contact", None),
+        ):
+            with self.subTest(paragraph=paragraph):
+                self.assertEqual(languages.classify(paragraph), expected)
+        for word in ("will", "also", "or", "son", "was", "an", "in"):
+            with self.subTest(word=word):
+                self.assertNotIn(word, languages.VOCABULARY)
+
+    def test_paragraphs_cover_the_text(self) -> None:
+        for text in ("", "one", "a\n\nb", "a\n \n\nb\n\n", MIXED):
+            with self.subTest(text=text[:20]):
+                spans = languages.paragraphs(text)
+                self.assertEqual("".join(text[start:end] for start, end in spans), text)
+
+    def test_mixed_text_gets_one_section_per_language(self) -> None:
+        sections = languages.language_sections(MIXED, "en")
+        self.assertEqual([language for _s, _e, language in sections], ["en", "de", "fr"])
+        self.assertEqual((sections[0][0], sections[-1][1]), (0, len(MIXED)))
+        self.assertTrue(all(a[1] == b[0] for a, b in zip(sections, sections[1:])))
+        german = MIXED[sections[1][0] : sections[1][1]]
+        # Unclear paragraphs stay with the section before them.
+        self.assertTrue(german.startswith("Sehr geehrte"))
+        self.assertIn("Telefon 089 1234567", german)
+        self.assertEqual(languages.language_shares(sections)["de"], len(german))
+
+    def test_defaults_and_leading_paragraphs(self) -> None:
+        self.assertEqual(languages.language_sections("Zelda, Berlin.", "de"), [(0, 14, "de")])
+        self.assertEqual(languages.language_sections("", "en"), [(0, 0, "en")])
+        text = "Kesselmeyer\n\nSehr geehrte Frau Kesselmeyer, bitte rufen Sie an."
+        self.assertEqual(languages.language_sections(text, "en"), [(0, len(text), "de")])
+        # Languages the analyzer does not support are not chosen.
+        self.assertEqual(languages.language_sections(text, "en", ("en", "fr")), [(0, len(text), "en")])
+
+    def test_each_section_is_analysed_in_its_language(self) -> None:
+        upstream = FakeUpstreams()
+        config = settings()
+        reviewer = Reviewer(config, Presidio(config, upstream), None)
+        result = reviewer.analyze({"text": MIXED})
+        sent = [json.loads(body) for _m, url, _h, body in upstream.calls if url.endswith("/analyze")]
+        self.assertEqual(sorted(item["language"] for item in sent), ["de", "en", "fr"])
+        for item in sent:
+            self.assertIn(item["text"], MIXED)
+        self.assertEqual(result["language"], "de")
+        self.assertEqual(set(result["languages"]), {"en", "de", "fr"})
+        self.assertEqual(sum(result["languages"].values()), len(MIXED))
+        # Offsets are relative to the whole text.
+        for item in result["detections"]:
+            self.assertEqual(MIXED[item["start"] : item["end"]], {"PERSON": "Zelda Quartermaine", "LOCATION": "Berlin"}[item["entity_type"]])
+
+    def test_one_language_is_one_section(self) -> None:
+        upstream = FakeUpstreams()
+        config = settings()
+        text = SAMPLE + "\n\nThe file is with us and we will write to you."
+        result = Reviewer(config, Presidio(config, upstream), None).analyze({"text": text})
+        sent = [json.loads(body) for _m, url, _h, body in upstream.calls if url.endswith("/analyze")]
+        self.assertEqual([(item["text"], item["language"]) for item in sent], [(text, "en")])
+        self.assertEqual(result["languages"], {"en": len(text)})
 
 
 class ServerTests(unittest.TestCase):

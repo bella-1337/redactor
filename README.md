@@ -42,7 +42,7 @@ Two optional connections leave the host:
   keys are refused; an accepted key is remembered for 60 seconds. The page
   never calls a model with the user's key.
 - **Local model (optional).** With `PII_REVIEW_ASSIST_URL` set, a local model
-  detects each text's language and personal data Presidio's recognizers miss;
+  detects a text's language and personal data Presidio's recognizers miss;
   its finds are marked "local model". Any OpenAI-compatible API works:
   - a LiteLLM gateway's `pii-assist` model, with a key limited to that model:
     `PII_REVIEW_ASSIST_URL=https://<gateway>/v1`, `PII_REVIEW_ASSIST_KEY=sk-…`;
@@ -104,10 +104,28 @@ Measured on two CPUs: a one-page image in 2 to 6 seconds including analysis,
 | Memory | page 3g, analyzer 4g, Xberg 4g, anonymizer 1g | Measured peaks: page 511 MiB and analyzer 3.3 GiB for the 9.8 MB text; page 210 MiB for the 190 MiB upload. The analyzer preloads its English, German, and French pipelines, shared by its workers. Raise the page's limit for texts much larger than 10 MB. |
 | Requests | 30 per key per minute; 10 rejected keys per address per minute; 8 at once | |
 
-Each text is analysed in one language, the one the local model detects (or
-`PII_REVIEW_LANGUAGE`). In a document that mixes languages, the language-specific
-recognizers, such as German and French street addresses, only work for that
-language.
+## Mixed languages
+
+Presidio analyses a text in one language, and its language-specific recognizers
+(German and French street addresses, the spaCy name models) only work in that
+language. So the page finds the language of each paragraph and analyses each
+section in its own language (`app/pii_review/languages.py`):
+
+- A paragraph is English, German, or French when it contains at least two
+  common words of that language (such as "the", "und", "vous", or salutations
+  like "Dear", "Sehr geehrte", "Bonjour") and at least twice as many as of any
+  other. Words common in two of the languages, such as "in" or "was", do not
+  count.
+- A paragraph without that evidence, such as a phone number or an IBAN on its
+  own line, belongs to the section before it.
+- A text without any clear paragraph is analysed in the language the local
+  model detects, or `PII_REVIEW_LANGUAGE`.
+
+A text in one language stays one section, so it is analysed as before. For a
+mixed text, the page lists the share of each language. The check takes about
+half a second for 10 MB of text. Measured on a PDF with an English, a German,
+and a French letter: their street addresses are now all masked, where the
+German and French ones were missed when the whole PDF was analysed in English.
 
 ## Data protection
 

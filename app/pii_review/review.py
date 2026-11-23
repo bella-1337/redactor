@@ -23,6 +23,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
+from pii_review.languages import LANGUAGES as ANALYZER_LANGUAGES
+from pii_review.languages import language_sections, language_shares
+
 LOG = logging.getLogger("pii_review")
 
 # All text is analysed, in pieces: Presidio's analyzer holds a whole spaCy
@@ -657,16 +660,28 @@ class Presidio:
             for item in parse_analyzer_results(results, piece)
         ]
 
-    def analyze(self, text: str, language: str | None = None) -> list[dict[str, Any]]:
+    def analyze(
+        self,
+        text: str,
+        language: str | None = None,
+        sections: list[tuple[int, int, str]] | None = None,
+    ) -> list[dict[str, Any]]:
         """Analyse all of the text in pieces of at most ANALYZE_CHUNK_BYTES.
 
-        Up to `analyze_parallel` pieces are in flight at once, one per analyzer
-        worker; more would only queue there.
+        `sections` gives each part of the text its own language (see
+        languages.language_sections); without them, all of it is analysed in
+        `language`. Up to `analyze_parallel` pieces are in flight at once, one
+        per analyzer worker; more would only queue there.
         """
-        language = language or self.settings.language
-        pieces = analysis_pieces(text)
-        with ThreadPoolExecutor(max_workers=max(1, min(self.settings.analyze_parallel, len(pieces)))) as pool:
-            answers = pool.map(lambda job: self._analyze_piece(job[0], job[1], language), pieces)
+        if not sections:
+            sections = [(0, len(text), language or self.settings.language)]
+        jobs = [
+            (start + offset, piece, section_language)
+            for start, end, section_language in sections
+            for offset, piece in analysis_pieces(text[start:end])
+        ]
+        with ThreadPoolExecutor(max_workers=max(1, min(self.settings.analyze_parallel, len(jobs)))) as pool:
+            answers = pool.map(lambda job: self._analyze_piece(*job), jobs)
             seen: set[tuple[int, int, str]] = set()
             detections: list[dict[str, Any]] = []
             for found in answers:
@@ -1104,7 +1119,12 @@ class Reviewer:
                 assist.update(used=True, checked_chars=found["checked_chars"])
                 language = found["language"] or language
                 items = found["items"]
-        detections = self.presidio.analyze(text, language)
+        # Each paragraph in its own language; unclear ones follow their
+        # neighbours, and a text without clear evidence keeps `language`.
+        sections = language_sections(text, language, ANALYZER_LANGUAGES)
+        shares = language_shares(sections)
+        language = next(iter(shares))
+        detections = self.presidio.analyze(text, sections=sections)
         taken = {(item["start"], item["end"], item["entity_type"]) for item in detections}
         detections.extend(assist_detections(text, items, taken))
         detections.sort(key=lambda item: (item["start"], -item["end"], item["entity_type"]))
@@ -1115,7 +1135,9 @@ class Reviewer:
             # Text read with OCR can contain recognition errors that hide data.
             "ocr": ocr,
             "text": text,
+            # The language of most of the text, and characters per language.
             "language": language,
+            "languages": shares,
             "assist": assist,
             "detections": detections,
         }

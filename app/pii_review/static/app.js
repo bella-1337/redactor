@@ -2,6 +2,7 @@
 
 const MAX_ROWS_PER_GROUP = 200;
 const OPERATOR_LABELS = { replace: "Replace with type", mask: "Mask with *", redact: "Remove" };
+const LANGUAGE_NAMES = { en: "English", de: "German", fr: "French" };
 const $ = (id) => document.getElementById(id);
 
 const state = {
@@ -9,6 +10,7 @@ const state = {
   file: null,
   text: "",
   detections: [], // {id, entity_type, start, end, score, recognizer, selected}
+  languages: {}, // language -> characters analysed in it
   typeOperators: {}, // entity_type -> "" (use default) | operator
 };
 
@@ -126,6 +128,7 @@ async function analyze() {
     state.text = result.text;
     state.detections = result.detections.map((item) => ({ ...item, selected: true }));
     state.typeOperators = {};
+    state.languages = result.languages || {};
     // OCR can misread or split names and numbers so that they are not detected.
     $("ocr-note").hidden = !result.ocr;
     setStatus("analyze-status", "");
@@ -157,12 +160,22 @@ function snippet(item) {
   return [before ? `…${before}` : "", value.length > 120 ? `${value.slice(0, 120)}…` : value, after ? `${after}…` : ""];
 }
 
+function describeLanguages() {
+  // Shown only for mixed texts: each section was analysed in its own language.
+  const entries = Object.entries(state.languages);
+  if (entries.length < 2) return "";
+  const total = entries.reduce((sum, [, chars]) => sum + chars, 0) || 1;
+  const parts = entries.map(([code, chars]) => `${LANGUAGE_NAMES[code] || code} ${Math.max(1, Math.round((chars / total) * 100))}%`);
+  return ` Each section was analysed in its language: ${parts.join(", ")}.`;
+}
+
 function renderSummary() {
   const selected = state.detections.filter((item) => item.selected).length;
   const types = new Set(state.detections.map((item) => item.entity_type)).size;
-  $("summary").textContent = state.detections.length
-    ? `Found ${state.detections.length} item(s) of ${types} type(s); ${selected} selected for masking.`
-    : "No personal data was detected. You can still add terms to mask below.";
+  $("summary").textContent =
+    (state.detections.length
+      ? `Found ${state.detections.length} item(s) of ${types} type(s); ${selected} selected for masking.`
+      : "No personal data was detected. You can still add terms to mask below.") + describeLanguages();
 }
 
 function renderGroups() {
