@@ -72,6 +72,18 @@ class DocumentType:
     mime_type: str
     magic: tuple[bytes, ...] = ()
     text_like: bool = False
+    # A second signature at a fixed offset (WebP: "WEBP" after the RIFF header).
+    marker: tuple[int, bytes] | None = None
+    # Read entirely with OCR.
+    image: bool = False
+
+    def matches(self, data: bytes | bytearray) -> bool:
+        if self.magic and not any(data.startswith(magic) for magic in self.magic):
+            return False
+        if self.marker is not None:
+            offset, expected = self.marker
+            return data[offset : offset + len(expected)] == expected
+        return True
 
 
 DOCUMENT_TYPES: Mapping[str, DocumentType] = {
@@ -92,7 +104,24 @@ DOCUMENT_TYPES: Mapping[str, DocumentType] = {
     ".html": DocumentType("text/html", text_like=True),
     ".htm": DocumentType("text/html", text_like=True),
     ".eml": DocumentType("message/rfc822", text_like=True),
+    # Images are read with Xberg's OCR (Tesseract, English, German, French).
+    ".png": DocumentType("image/png", (b"\x89PNG\r\n\x1a\n",), image=True),
+    ".jpg": DocumentType("image/jpeg", (b"\xff\xd8\xff",), image=True),
+    ".jpeg": DocumentType("image/jpeg", (b"\xff\xd8\xff",), image=True),
+    ".tif": DocumentType("image/tiff", (b"II*\x00", b"MM\x00*"), image=True),
+    ".tiff": DocumentType("image/tiff", (b"II*\x00", b"MM\x00*"), image=True),
+    ".bmp": DocumentType("image/bmp", (b"BM",), image=True),
+    ".gif": DocumentType("image/gif", (b"GIF87a", b"GIF89a"), image=True),
+    ".webp": DocumentType("image/webp", (b"RIFF",), marker=(8, b"WEBP"), image=True),
 }
+
+
+@dataclass(frozen=True)
+class Extraction:
+    """A document's text, and whether part of it may come from OCR (scans or images)."""
+
+    text: str
+    ocr: bool = False
 
 
 class ReviewError(Exception):
@@ -759,7 +788,32 @@ class XbergExtractor:
         ]
         return "\n\n".join(parts) if parts else None
 
-    def extract(self, data: bytes | bytearray | memoryview, extension: str, kind: DocumentType) -> str:
+    @staticmethod
+    def _used_ocr(structured: Any) -> bool:
+        """True if Xberg read part of the document with OCR, or it contains images.
+
+        Xberg reads the text in images embedded in Office documents with OCR but
+        flags only scanned PDF pages and image files as OCR.
+        """
+        results = structured.get("results") if isinstance(structured, dict) else None
+        if not isinstance(results, list):
+            results = [structured]
+        for item in results:
+            if not isinstance(item, dict):
+                continue
+            metadata = item.get("metadata")
+            counts = item.get("counts")
+            if (
+                item.get("extraction_method") in {"ocr", "mixed"}
+                or (isinstance(metadata, dict) and metadata.get("ocr_used") is True)
+                or (isinstance(counts, dict) and isinstance(counts.get("images"), int) and counts["images"] > 0)
+            ):
+                return True
+        return False
+
+    def extract(
+        self, data: bytes | bytearray | memoryview, extension: str, kind: DocumentType
+    ) -> Extraction:
         boundary = secrets.token_hex(16)
         head = (
             f"--{boundary}\r\n"
@@ -802,7 +856,7 @@ class XbergExtractor:
                     "The document could not be read. Check that it is not damaged or encrypted.", 422
                 )
             raise UpstreamError("xberg returned no document text")
-        return text
+        return Extraction(text, ocr=kind.image or self._used_ocr(answer))
 
 
 def extract_document(
@@ -810,7 +864,7 @@ def extract_document(
     data: bytes | bytearray,
     max_file_bytes: int,
     extractor: XbergExtractor | None,
-) -> str:
+) -> Extraction:
     if not data:
         raise ReviewError("The document is empty.")
     if len(data) > max_file_bytes:
@@ -820,8 +874,8 @@ def extract_document(
         )
     extension, kind = document_type(filename)
     if kind is None:
-        return decode_text_file(bytes(data))
-    if kind.magic and not any(data.startswith(magic) for magic in kind.magic):
+        return Extraction(decode_text_file(bytes(data)))
+    if not kind.matches(data):
         raise ReviewError(f"The file content does not match its {extension} extension.", status=415)
     if kind.text_like and b"\x00" in data[:8192]:
         raise ReviewError(f"The file content does not match its {extension} extension.", status=415)
@@ -1025,14 +1079,18 @@ class Reviewer:
         if not self._extraction_slots.acquire(blocking=False):
             raise ReviewError("Other documents are being read. Try again in a moment.", status=503)
         try:
-            text = extract_document(filename, data, self.settings.max_file_bytes, self.extractor)
+            extraction = extract_document(filename, data, self.settings.max_file_bytes, self.extractor)
         finally:
             self._extraction_slots.release()
-        if not text.strip():
-            raise ReviewError("No text was found in the document. Scanned pages without OCR text cannot be analysed.", 422)
-        return self._analyze_text(text, "document")
+        if not extraction.text.strip():
+            raise ReviewError(
+                "No text was found in the document, not even with OCR. "
+                "Check that a scan or photo is sharp, upright, and not too small.",
+                422,
+            )
+        return self._analyze_text(extraction.text, "document", ocr=extraction.ocr)
 
-    def _analyze_text(self, text: Any, source: str) -> dict[str, Any]:
+    def _analyze_text(self, text: Any, source: str, *, ocr: bool = False) -> dict[str, Any]:
         text = require_text(text, self.settings.max_text_bytes)
         assist: dict[str, Any] = {"used": False, "checked_chars": 0, "total_chars": len(text)}
         language = self.settings.language
@@ -1054,6 +1112,8 @@ class Reviewer:
             item["id"] = index
         return {
             "source": source,
+            # Text read with OCR can contain recognition errors that hide data.
+            "ocr": ocr,
             "text": text,
             "language": language,
             "assist": assist,

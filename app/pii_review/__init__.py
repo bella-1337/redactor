@@ -6,4 +6,4 @@ chooses what to mask and how, and gets the masked text back. Nothing is
 stored, and nothing is sent to a cloud model.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

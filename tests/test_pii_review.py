@@ -314,7 +314,9 @@ class ParsingTests(unittest.TestCase):
 
 class DocumentTests(unittest.TestCase):
     def test_text_files_are_decoded_locally(self) -> None:
-        self.assertEqual(review.extract_document("notes.TXT", b"\xef\xbb\xbfhello", 1024, None), "hello")
+        self.assertEqual(
+            review.extract_document("notes.TXT", b"\xef\xbb\xbfhello", 1024, None), review.Extraction("hello")
+        )
         with self.assertRaises(ReviewError):
             review.extract_document("notes.txt", b"\xff\xfe", 1024, None)
         with self.assertRaises(ReviewError):
@@ -338,6 +340,32 @@ class DocumentTests(unittest.TestCase):
             review.extract_document("a.pdf", b"%PDF-" + b"x" * 2000, 1024, None)
         self.assertEqual(caught.exception.status, 413)
 
+    def test_images_need_their_signature(self) -> None:
+        good = {
+            "scan.PNG": b"\x89PNG\r\n\x1a\n" + b"\x00" * 16,
+            "photo.jpg": b"\xff\xd8\xff\xe0" + b"\x00" * 16,
+            "photo.jpeg": b"\xff\xd8\xff\xe1" + b"\x00" * 16,
+            "fax.tif": b"II*\x00" + b"\x00" * 16,
+            "fax.tiff": b"MM\x00*" + b"\x00" * 16,
+            "scan.bmp": b"BM" + b"\x00" * 16,
+            "scan.gif": b"GIF89a" + b"\x00" * 16,
+            "scan.webp": b"RIFF\x10\x00\x00\x00WEBPVP8 " + b"\x00" * 8,
+        }
+        for name, data in good.items():
+            with self.subTest(name=name), self.assertRaises(ReviewError) as caught:
+                review.extract_document(name, data, 1024, None)
+            self.assertEqual(caught.exception.status, 503)  # accepted, but no extractor here
+            self.assertTrue(review.document_type(name)[1].image)
+        for name, data in {
+            "scan.png": b"\xff\xd8\xff\xe0",
+            "photo.jpg": b"\x89PNG\r\n\x1a\n",
+            "scan.webp": b"RIFF\x10\x00\x00\x00WAVEfmt ",
+            "scan.gif": b"GIF8",
+        }.items():
+            with self.subTest(name=name), self.assertRaises(ReviewError) as caught:
+                review.extract_document(name, data, 1024, None)
+            self.assertEqual(caught.exception.status, 415)
+
 
 class XbergTests(unittest.TestCase):
     def capture(self, status: int, answer: Any) -> tuple[Any, list[tuple[str, dict[str, str], bytes]]]:
@@ -360,8 +388,8 @@ class XbergTests(unittest.TestCase):
         }
         transport, calls = self.capture(200, answer)
         data = bytearray(b"%PDF-1.7 \x00\xff binary")
-        text = XbergExtractor("http://xberg:8000", transport).extract(data, ".pdf", review.DOCUMENT_TYPES[".pdf"])
-        self.assertEqual(text, "Page one\n\nPage two")
+        extraction = XbergExtractor("http://xberg:8000", transport).extract(data, ".pdf", review.DOCUMENT_TYPES[".pdf"])
+        self.assertEqual(extraction, review.Extraction("Page one\n\nPage two", ocr=False))
         url, headers, body = calls[0]
         self.assertEqual(url, "http://xberg:8000/extract")
         boundary = headers["Content-Type"].split("boundary=", 1)[1]
@@ -369,6 +397,24 @@ class XbergTests(unittest.TestCase):
         self.assertIn(b'name="files"; filename="document.pdf"', body)
         self.assertIn(bytes(data), body)
         self.assertTrue(body.endswith(f"--{boundary}--\r\n".encode()))
+
+    def test_reports_whether_ocr_was_used(self) -> None:
+        pdf, png = review.DOCUMENT_TYPES[".pdf"], review.DOCUMENT_TYPES[".png"]
+        for kind, result, expected in (
+            (pdf, {"content": "x", "extraction_method": "native", "metadata": {"ocr_used": False}}, False),
+            (pdf, {"content": "x", "extraction_method": "mixed", "metadata": {"ocr_used": True}}, True),
+            (pdf, {"content": "x", "extraction_method": "ocr"}, True),
+            (pdf, {"content": "x", "metadata": {"ocr_used": True}}, True),
+            # Images in Office documents are read with OCR but not flagged.
+            (pdf, {"content": "x", "extraction_method": "native", "counts": {"images": 2}}, True),
+            (pdf, {"content": "x", "counts": {"images": 0}}, False),
+            # An image is always read with OCR, whatever the answer says.
+            (png, {"content": "x"}, True),
+        ):
+            with self.subTest(result=result):
+                transport, _calls = self.capture(200, {"results": [result]})
+                extraction = XbergExtractor("http://xberg:8000", transport).extract(b"x", ".pdf", kind)
+                self.assertIs(extraction.ocr, expected)
 
     def test_unreadable_documents_get_a_fixed_message(self) -> None:
         transport, _calls = self.capture(
@@ -652,7 +698,7 @@ class ServerTests(unittest.TestCase):
 
     def test_text_document_upload(self) -> None:
         status, result = self.upload(SAMPLE.encode())
-        self.assertEqual((status, result["source"], result["text"]), (200, "document", SAMPLE))
+        self.assertEqual((status, result["source"], result["text"], result["ocr"]), (200, "document", SAMPLE, False))
         self.assertEqual([d["entity_type"] for d in result["detections"]], ["PERSON", "EMAIL_ADDRESS", "LOCATION"])
         # The browser sends the name URL-encoded; only the extension counts.
         self.assertEqual(self.upload(SAMPLE.encode(), name="M%C3%BCller%20notes.TXT")[0], 200)

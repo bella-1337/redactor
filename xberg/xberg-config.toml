@@ -1,6 +1,25 @@
 # Xberg configuration for the PII review tool. Xberg here only reads uploaded
 # bytes: local paths and file:// URIs are refused, and it runs on an internal
 # network with no internet, so it cannot fetch URLs either.
+
+# No result cache: text from users' documents must not outlive the request.
+use_cache = false
+
 [url]
 allow_local_file_inputs = false
 allow_file_uris = false
+
+# OCR with Tesseract (Apache-2.0, in the image) for images, scanned PDF pages,
+# and images embedded in Office documents. Pages with a text layer keep their
+# native text; scanned pages of a mixed PDF are read with OCR.
+[ocr]
+backend = "tesseract"
+language = "eng+deu+fra"
+
+[ocr.tesseract_config]
+# Automatic page layout. Xberg's default for whole images (sparse text) and
+# its table detection scramble the reading order of ordinary letters.
+psm = 3
+enable_table_detection = false
+# No OCR cache on disk either.
+use_cache = false

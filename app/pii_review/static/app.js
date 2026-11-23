@@ -81,10 +81,10 @@ function describeFileSupport() {
     ? [...config.text_extensions, ...config.document_extensions]
     : config.text_extensions;
   $("input-file").accept = types.join(",");
-  const documents = config.documents ? "" : " Office and PDF documents are not available on this server.";
-  $("file-hint").textContent =
-    `Supported: ${types.join(" ")} up to ${formatBytes(config.max_file_bytes)}; ` +
-    `at most ${Math.round(config.max_text_bytes / 1000)} KB of text is analysed.${documents}`;
+  const documents = config.documents
+    ? ` Images and scanned PDF pages are read with OCR (${(config.ocr_languages || []).join(", ")}).`
+    : " Office, PDF, and image files are not available on this server.";
+  $("file-hint").textContent = `Supported: ${types.join(" ")} up to ${formatBytes(config.max_file_bytes)}.${documents}`;
 }
 
 function onFileChosen() {
@@ -126,6 +126,8 @@ async function analyze() {
     state.text = result.text;
     state.detections = result.detections.map((item) => ({ ...item, selected: true }));
     state.typeOperators = {};
+    // OCR can misread or split names and numbers so that they are not detected.
+    $("ocr-note").hidden = !result.ocr;
     setStatus("analyze-status", "");
     renderReview();
     $("review").hidden = false;

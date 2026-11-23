@@ -18,13 +18,13 @@ x-logging: &logging
 services:
   pii-review:
     logging: *logging
-    image: pii-review:0.2.0
+    image: pii-review:0.3.0
     build:
       context: ./app
       labels:
         org.opencontainers.image.title: pii-review
         org.opencontainers.image.description: Page that shows the personal data Presidio and a local model find and masks what the user selects
-        org.opencontainers.image.version: "0.2.0"
+        org.opencontainers.image.version: "0.3.0"
         org.opencontainers.image.base.name: ghcr.io/astral-sh/uv:0.9.30-python3.13-bookworm-slim
     user: "65532:65532"
     environment:

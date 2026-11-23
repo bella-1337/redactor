@@ -1,11 +1,14 @@
 # PII review
 
-A self-service page where people check the personal data in a text or document
-before they share it, choose what to mask, and copy the masked result.
+A self-service page where people check the personal data in a text, document,
+scan, or image before they share it, choose what to mask, and copy the masked
+result.
 
 1. Sign in with your LiteLLM virtual key.
 2. Paste text, or upload a document of up to 200 MiB (PDF, Word, Excel,
-   PowerPoint, OpenDocument, RTF, HTML, email, or plain text).
+   PowerPoint, OpenDocument, RTF, HTML, email, or plain text) or an image (PNG,
+   JPEG, TIFF, WebP, BMP, GIF). Images, scanned PDF pages, and images in Office
+   documents are read with OCR.
 3. See everything that was found, grouped by type, with its score, context, and
    a highlighted preview: names, organisations, addresses, email addresses,
    phone numbers, IBANs, card numbers, UK NHS and National Insurance numbers,
@@ -25,7 +28,7 @@ content, file names, or keys.
 | `pii-review` | local build (`app/`), Python standard library only | The page and its API. Checks keys, sends documents to Xberg, text to Presidio and the local model, and masks the selection. |
 | `presidio-analyzer` | local build (`presidio/`) on `mcr.microsoft.com/presidio-analyzer:2.2.362` | Detection in English, German, and French, with organisation names, UK formats, and German and French street addresses. |
 | `presidio-anonymizer` | `mcr.microsoft.com/presidio-anonymizer:2.2.362` | Masks the selected items. |
-| `xberg` | `ghcr.io/xberg-io/xberg:1.3.10-core` | Reads documents (`xberg serve`, upload API, 250 MiB limit). |
+| `xberg` | `ghcr.io/xberg-io/xberg:1.3.10-core` | Reads documents (`xberg serve`, upload API, 250 MiB limit), with OCR by the Tesseract engine in the image. |
 
 Networks: only `pii-review` is published (on `127.0.0.1` by default) and can
 reach outside the host. Presidio sits on the internal `backend` network, and
@@ -66,6 +69,31 @@ reverse proxy in front of it and keep `PII_REVIEW_BIND=127.0.0.1`.
 The first build downloads the German and French spaCy pipelines (about
 1.1 GB). See `.env.example` for every setting.
 
+## OCR
+
+Xberg reads images, the scanned pages of a PDF, and images embedded in Office
+documents with [Tesseract](https://github.com/tesseract-ocr/tesseract) 5
+(Apache-2.0), which ships in the pinned Xberg image with English, German, and
+French language data. Pages with a text layer keep their own text, so a PDF
+that mixes typed and scanned pages is read page by page. Settings in
+`xberg/xberg-config.toml`:
+
+- `language = "eng+deu+fra"`: all three languages at once, so accents, umlauts,
+  and `ß` are recognised in any document.
+- `psm = 3` and `enable_table_detection = false`: automatic page layout.
+  Xberg's defaults for whole images (sparse text) and its table detection mix
+  up the lines of ordinary letters.
+- `use_cache = false`, twice: no extraction or OCR results are cached.
+
+When a document was read with OCR or contains images, the page says so: OCR
+can misread or split names and numbers (`QQ` became `98` in one test) so that
+they are not detected, and the user should compare the preview with the
+original. A file whose content does not match its image extension is refused,
+and an image without readable text gets a message instead of an empty result.
+
+Measured on two CPUs: a one-page image in 2 to 6 seconds including analysis,
+30 scanned pages in 18 seconds; Xberg peaked at about 330 MiB.
+
 ## Sizing and limits
 
 | Item | Default | Notes |
@@ -76,14 +104,16 @@ The first build downloads the German and French spaCy pipelines (about
 | Memory | page 3g, analyzer 4g, Xberg 4g, anonymizer 1g | Measured peaks: page 511 MiB and analyzer 3.3 GiB for the 9.8 MB text; page 210 MiB for the 190 MiB upload. The analyzer preloads its English, German, and French pipelines, shared by its workers. Raise the page's limit for texts much larger than 10 MB. |
 | Requests | 30 per key per minute; 10 rejected keys per address per minute; 8 at once | |
 
-Scanned documents without a text layer go through Xberg's OCR, which is slower;
-a document with no text at all is refused with a message.
+Each text is analysed in one language, the one the local model detects (or
+`PII_REVIEW_LANGUAGE`). In a document that mixes languages, the language-specific
+recognizers, such as German and French street addresses, only work for that
+language.
 
 ## Data protection
 
 - No storage: uploads, text, detections, and results exist only in memory for
-  the duration of a request. The page has a read-only file system and no
-  volume.
+  the duration of a request. The page and Xberg have read-only file systems
+  and no volumes, and Xberg's extraction and OCR caches are off.
 - No content in logs: the page logs the method, route, status, and duration of
   each request and that a key was rejected. Xberg logs at `warn` by default.
 - The original file name never leaves the page: Xberg gets `document.<ext>`.
@@ -117,7 +147,8 @@ The service has no third-party Python dependencies.
 ## Licences
 
 The upstream images and models keep their own licences: Presidio (MIT), Xberg
-(see its image), spaCy `en_core_web_lg` and `de_core_news_lg` (MIT), and
+(see its image), Tesseract and its language data in the Xberg image
+(Apache-2.0), spaCy `en_core_web_lg` and `de_core_news_lg` (MIT), and
 `fr_core_news_lg` (LGPL-LR, the Lesser General Public License for Linguistic
 Resources). LGPL-LR obligations apply when the analyzer image is distributed
 outside your organisation; review them before doing so. This repository does

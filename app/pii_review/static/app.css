@@ -94,6 +94,13 @@ button:disabled { opacity: 0.6; cursor: progress; }
 .status { color: var(--muted); }
 .status.error { color: var(--error); }
 .summary { font-weight: 600; margin: 0 0 4px; }
+.notice {
+  border-left: 3px solid var(--hit-selected);
+  background: var(--row-selected);
+  padding: 8px 12px;
+  border-radius: 4px;
+  margin: 8px 0 12px;
+}
 
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 12px 0; }
 .toolbar label { margin: 0; }

@@ -11,7 +11,7 @@
 <body>
   <header class="top">
     <h1>PII review</h1>
-    <p class="lede">See which personal data a text or document contains, choose what to mask, and copy the masked result. Nothing is stored, and nothing is sent to a cloud model.</p>
+    <p class="lede">See which personal data a text, document, scan, or image contains, choose what to mask, and copy the masked result. Nothing is stored, and nothing is sent to a cloud model.</p>
   </header>
 
   <main>
@@ -41,6 +41,7 @@
     <section id="review" class="card" aria-labelledby="step-review" hidden>
       <h2 id="step-review"><span class="step">3</span> Choose what to mask</h2>
       <p id="summary" class="summary"></p>
+      <p id="ocr-note" class="notice" hidden>This document contains images or scanned pages, and the text in them was read with OCR. Recognition errors can change or split names and numbers so that they are not detected: compare the preview with the original and add anything missed below.</p>
       <p class="hint">Detection is automatic and can miss personal data or flag harmless text. Untick anything that should stay, and add anything it missed below.</p>
 
       <div class="toolbar">
