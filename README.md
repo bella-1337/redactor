@@ -146,10 +146,11 @@ The service has no third-party Python dependencies.
 
 ## Licences
 
+This repository's code is under the MIT licence ([LICENSE](LICENSE)).
+
 The upstream images and models keep their own licences: Presidio (MIT), Xberg
 (see its image), Tesseract and its language data in the Xberg image
 (Apache-2.0), spaCy `en_core_web_lg` and `de_core_news_lg` (MIT), and
 `fr_core_news_lg` (LGPL-LR, the Lesser General Public License for Linguistic
 Resources). LGPL-LR obligations apply when the analyzer image is distributed
-outside your organisation; review them before doing so. This repository does
-not yet declare a licence for its own code.
+outside your organisation; review them before doing so.
