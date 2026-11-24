@@ -5,6 +5,10 @@ const OPERATOR_LABELS = { replace: "Replace with type", mask: "Mask with *", red
 const LANGUAGE_NAMES = { en: "English", de: "German", fr: "French" };
 const $ = (id) => document.getElementById(id);
 
+// The desktop app opens the page with its per-run token in the URL fragment,
+// which the browser never sends to a server. It stays there so a reload keeps it.
+const LOCAL_TOKEN = new URLSearchParams(window.location.hash.slice(1)).get("token") || "";
+
 const state = {
   config: null,
   file: null,
@@ -37,9 +41,13 @@ function formatBytes(bytes) {
   return bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MiB` : `${Math.round(bytes / 1024)} KiB`;
 }
 
+function localAuth() {
+  return Boolean(state.config && state.config.auth === "local");
+}
+
 async function api(path, body, file = null) {
-  const key = $("api-key").value.trim();
-  if (!key) throw new Error("Enter your LiteLLM virtual key first.");
+  const key = localAuth() ? LOCAL_TOKEN : $("api-key").value.trim();
+  if (!key) throw new Error(localAuth() ? "This window lost its session. Restart PII Review." : "Enter your LiteLLM virtual key first.");
   // A file goes as the raw request body; only its extension is used server side.
   const headers = file
     ? { "Content-Type": "application/octet-stream", "X-File-Name": encodeURIComponent(file.name), Authorization: `Bearer ${key}` }
@@ -343,6 +351,11 @@ async function loadConfig() {
     if (response.ok) state.config = await response.json();
   } catch {
     state.config = null;
+  }
+  if (localAuth()) {
+    // The desktop app signs the window in: no key step, the others move up.
+    $("key-card").hidden = true;
+    for (const step of document.querySelectorAll(".step")) step.textContent = String(Number(step.textContent) - 1);
   }
   describeFileSupport();
 }

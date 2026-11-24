@@ -9,7 +9,8 @@ Routes:
                               X-File-Name gives the extension)
   POST /api/mask              mask the items the user selected (JSON)
 
-Every POST route needs `Authorization: Bearer <LiteLLM virtual key>`.
+Every POST route needs `Authorization: Bearer <LiteLLM virtual key>`, or in the
+desktop app (PII_REVIEW_AUTH=local) the token it made for this run.
 """
 
 from __future__ import annotations
@@ -105,6 +106,8 @@ class Service:
             # The languages xberg/xberg-config.toml gives Tesseract.
             "ocr_languages": ["English", "German", "French"],
             "operators": ["replace", "mask", "redact"],
+            # "local": the desktop app's window holds the token; no key prompt.
+            "auth": self.settings.auth,
         }
 
 
@@ -251,8 +254,12 @@ class Handler(BaseHTTPRequestHandler):
         client = self._client_ip()
         header = self.headers.get("Authorization", "")
         scheme, _, key = header.partition(" ")
+        local = self.service.settings.auth == "local"
         if scheme.lower() != "bearer" or not key.strip():
-            self._error(HTTPStatus.UNAUTHORIZED, "Enter your LiteLLM virtual key.")
+            self._error(
+                HTTPStatus.UNAUTHORIZED,
+                "This window lost its session. Restart PII Review." if local else "Enter your LiteLLM virtual key.",
+            )
             return None
         key = key.strip()
         # Only rejected keys count, so users sharing one NAT address are not
@@ -267,7 +274,10 @@ class Handler(BaseHTTPRequestHandler):
         if not accepted:
             self.service.failed_auth_limiter.allow(client)
             LOG.warning("rejected a key")
-            self._error(HTTPStatus.UNAUTHORIZED, "The key was not accepted.")
+            self._error(
+                HTTPStatus.UNAUTHORIZED,
+                "This window lost its session. Restart PII Review." if local else "The key was not accepted.",
+            )
             return None
         return self.service.validator.fingerprint(key)
 
@@ -329,6 +339,9 @@ def main() -> int:
         settings = settings_from_environment()
     except ValueError as error:
         LOG.error("invalid configuration: %s", error)
+        return 2
+    if settings.auth != "gateway":
+        LOG.error("invalid configuration: PII_REVIEW_AUTH=local is for the desktop app (python -m pii_review.desktop)")
         return 2
     server = make_server(build_service(settings))
     LOG.info(

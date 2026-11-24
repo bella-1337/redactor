@@ -1,0 +1,38 @@
+{
+  "_comment": "Everything the desktop app bundles besides its Python packages (requirements.txt), pinned by version and SHA-256. Same Xberg version as compose.yml. Tesseract data: tessdata_fast, the files Xberg itself would download.",
+  "python": "3.12.14",
+  "xberg": {
+    "version": "1.3.10",
+    "url": "https://github.com/xberg-io/xberg/releases/download/v{version}/{asset}",
+    "assets": {
+      "aarch64-apple-darwin": {
+        "asset": "xberg-cli-aarch64-apple-darwin.tar.gz",
+        "sha256": "378cc1a7e76addb1302944fd155daead565dba1aa913cec56d19ef2a5878b45a"
+      },
+      "x86_64-apple-darwin": {
+        "asset": "xberg-cli-x86_64-apple-darwin.tar.gz",
+        "sha256": "f5e800c579e4863503beaecac75d0b433cf77fdb93966fc534697722b0f3fde0"
+      },
+      "x86_64-unknown-linux-gnu": {
+        "asset": "xberg-cli-x86_64-unknown-linux-gnu.tar.gz",
+        "sha256": "851fb4f8ea9fb2446886555d6f4cae963c234e923c9b73cee2af8efc15bd063f"
+      },
+      "aarch64-unknown-linux-gnu": {
+        "asset": "xberg-cli-aarch64-unknown-linux-gnu.tar.gz",
+        "sha256": "aa59e5525c5e147cb54f4553159a4bf98a1a01d3bd9291d9966b05db85ce6cee"
+      },
+      "x86_64-pc-windows-msvc": {
+        "asset": "xberg-cli-x86_64-pc-windows-msvc.zip",
+        "sha256": "488b83bf857da96e24f28c64b4cd55a3d530f6f55e22421717650ea38aff63c3"
+      }
+    }
+  },
+  "tessdata": {
+    "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/87416418657359cb625c412a48b6e1d6d41c29bd/{name}",
+    "files": {
+      "eng.traineddata": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2",
+      "deu.traineddata": "19d219bbb6672c869d20a9636c6816a81eb9a71796cb93ebe0cb1530e2cdb22d",
+      "fra.traineddata": "ced037562e8c80c13122dece28dd477d399af80911a28791a66a63ac1e3445ca"
+    }
+  }
+}

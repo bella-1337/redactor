@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Hardened-runtime exceptions for the bundled Python interpreter and Xberg
+     (signed by desktop/scripts/build_runtime.py when APPLE_SIGNING_IDENTITY is
+     set). CPython's ctypes and numpy need writable-executable memory, and the
+     interpreter loads extension modules from pip wheels. -->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>

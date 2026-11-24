@@ -69,6 +69,14 @@ reverse proxy in front of it and keep `PII_REVIEW_BIND=127.0.0.1`.
 The first build downloads the German and French spaCy pipelines (about
 1.1 GB). See `.env.example` for every setting.
 
+## Desktop app
+
+The same tool also ships as a desktop app for macOS, Windows, and Linux, with
+installers that bring everything along (Python, Presidio and its models, Xberg,
+Tesseract data) and need no Docker or internet connection. It runs for the
+person using the computer, without a LiteLLM key. See
+[desktop/README.md](desktop/README.md).
+
 ## OCR
 
 Xberg reads images, the scanned pages of a PDF, and images embedded in Office
