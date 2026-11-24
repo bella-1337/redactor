@@ -163,6 +163,9 @@ class Settings:
     assist_max_calls: int = 8
     # Analyzer requests in flight at once; match PRESIDIO_ANALYZER_WORKERS.
     analyze_parallel: int = 2
+    # "gateway": callers sign in with a LiteLLM virtual key (the server).
+    # "local": callers send the token the desktop app made for this run.
+    auth: str = "gateway"
 
     @property
     def max_body_bytes(self) -> int:
@@ -200,12 +203,15 @@ def _bounded_int(name: str, raw: str | None, default: int, low: int, high: int) 
 
 def settings_from_environment(environ: Mapping[str, str] = os.environ) -> Settings:
     """Read and validate the configuration; any invalid value stops the service."""
+    auth = environ.get("PII_REVIEW_AUTH", "gateway").strip() or "gateway"
+    if auth not in {"gateway", "local"}:
+        raise ValueError("PII_REVIEW_AUTH must be gateway or local")
     gateways = tuple(
         _http_url("PII_REVIEW_GATEWAYS", item)
         for item in environ.get("PII_REVIEW_GATEWAYS", "").split(",")
         if item.strip()
     )
-    if not gateways:
+    if auth == "gateway" and not gateways:
         raise ValueError("PII_REVIEW_GATEWAYS must list at least one LiteLLM gateway URL")
     assist_model = environ.get("PII_REVIEW_ASSIST_MODEL", "pii-assist").strip() or "pii-assist"
     if not ASSIST_MODEL_RE.fullmatch(assist_model):
@@ -263,6 +269,7 @@ def settings_from_environment(environ: Mapping[str, str] = os.environ) -> Settin
         assist_max_calls=_bounded_int(
             "PII_REVIEW_ASSIST_MAX_CALLS", environ.get("PII_REVIEW_ASSIST_MAX_CALLS"), 8, 1, 30
         ),
+        auth=auth,
     )
 
 
@@ -432,6 +439,26 @@ class KeyValidator:
             else:
                 LOG.warning("key check: gateway returned HTTP %s", response.status)
         return False if refused else None
+
+
+class LocalTokenValidator:
+    """Accept only the token the desktop app made for this run (PII_REVIEW_AUTH=local).
+
+    The app's window gets it in the page URL's fragment, which browsers never
+    send to a server, so other programs and web pages cannot use the API.
+    """
+
+    def __init__(self, token: str) -> None:
+        if len(token) < 32:
+            raise ValueError("the local token is too short")
+        self._token = token.encode("utf-8")
+        self._secret = secrets.token_bytes(32)
+
+    def fingerprint(self, key: str) -> str:
+        return hmac.new(self._secret, key.encode("utf-8", "replace"), hashlib.sha256).hexdigest()
+
+    def check(self, key: str) -> bool:
+        return hmac.compare_digest(key.encode("utf-8", "replace"), self._token)
 
 
 # ---------------------------------------------------------------------------
