@@ -9,8 +9,12 @@ the app downloads GPU support once (see [NVIDIA GPU](#nvidia-gpu)).
 | Platform | Installers | Built on |
 | --- | --- | --- |
 | macOS 15+ (Apple silicon) | `.dmg` | `macos-15` |
-| Windows 10/11 x64 | `.exe` (per-user NSIS) and `.msi` | `windows-2022` |
+| Windows 10/11 x64 | `.msi` | `windows-2022` |
 | Linux x64 and arm64 with glibc 2.39+ (Ubuntu 24.04, Debian 13, Fedora 40, or later) | `.deb`, `.rpm`, `.AppImage` | `ubuntu-24.04`, `ubuntu-24.04-arm` |
+
+There is no per-user NSIS `.exe` for now: the bundle, about 2.1 GB with the
+three spaCy `lg` models, is over NSIS's 2 GB limit. The `.msi` installs for all
+users of the computer and needs administrator rights.
 
 The minimums are the bundled Xberg 1.3.10 binaries': its macOS arm64 libraries
 need macOS 15, its Linux build glibc 2.39. There is no Intel Mac build:

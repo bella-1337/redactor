@@ -1,6 +1,7 @@
 # Builds the PII Review desktop installers on each platform's own runner:
 #   macOS:   .dmg (Apple silicon; macOS 15 or later)
-#   Windows: .exe (NSIS, per user) and .msi, with the WebView2 offline installer
+#   Windows: .msi, with the WebView2 offline installer (no NSIS .exe for now:
+#            the bundle is over NSIS's 2 GB limit)
 #   Linux:   .deb, .rpm, and .AppImage (x86_64 and arm64; glibc 2.39 or later)
 # Every installer carries the Python runtime, Presidio and its spaCy models,
 # Xberg, and the Tesseract data (desktop/scripts/build_runtime.py).
@@ -63,7 +64,8 @@ jobs:
             bundles: app,dmg
           - name: windows-x64
             runner: windows-2022
-            bundles: nsis,msi
+            # NSIS is off for now: the bundle (about 2.1 GB) is over its 2 GB limit.
+            bundles: msi
           - name: linux-x64
             runner: ubuntu-24.04
             bundles: deb,rpm,appimage
