@@ -68,6 +68,8 @@ struct Paths {
     interpreter: PathBuf,
     settings: PathBuf,
     log: PathBuf,
+    /// Where the engine downloads its GPU pack on a computer with an NVIDIA GPU.
+    gpu: PathBuf,
 }
 
 fn paths(app: &AppHandle) -> tauri::Result<Paths> {
@@ -86,6 +88,7 @@ fn paths(app: &AppHandle) -> tauri::Result<Paths> {
         interpreter,
         settings: config_dir.join("settings.env"),
         log: log_dir.join("engine.log"),
+        gpu: app.path().app_local_data_dir()?.join("gpu"),
     })
 }
 
@@ -102,6 +105,8 @@ fn spawn_engine(paths: &Paths) -> std::io::Result<Child> {
         .arg(&paths.resources)
         .arg("--settings")
         .arg(&paths.settings)
+        .arg("--gpu-dir")
+        .arg(&paths.gpu)
         .env_remove("PYTHONHOME")
         .env_remove("PYTHONPATH")
         .stdin(Stdio::piped())

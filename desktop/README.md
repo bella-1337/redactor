@@ -2,7 +2,9 @@
 
 The compose deployment as one installable app for macOS, Windows, and Linux.
 Everything it needs is inside the installer: no Docker, Python, Tesseract, or
-internet connection is required on the computer that runs it.
+internet connection is required on the computer that runs it. The one
+exception is optional: on a Windows or Linux x64 computer with an NVIDIA GPU,
+the app downloads GPU support once (see [NVIDIA GPU](#nvidia-gpu)).
 
 | Platform | Installers | Built on |
 | --- | --- | --- |
@@ -53,6 +55,41 @@ disk cache, and about 35 seconds on a cold start or when run straight from the
   public-suffix list instead of downloading one.
 - **No container limits.** Memory and CPU are the computer's. Peak use is about
   2.5 GiB for the models plus what a document needs (see the main README).
+
+## NVIDIA GPU
+
+On Windows and Linux x64 the spaCy pipelines run on an NVIDIA GPU when the
+computer has one. The installers don't include GPU support: CuPy and the
+CUDA 12 libraries it needs (runtime, NVRTC, cuBLAS, cuRAND) take 1.5 GB and
+would push the installers past the 2 GB limit of NSIS, MSI, and GitHub
+releases. Instead:
+
+1. **First start.** The app asks the NVIDIA driver whether there is a GPU that
+   runs CUDA 12 (driver 525 or later). If there is, it downloads the GPU pack
+   in the background (the wheels pinned by SHA-256 in
+   [`runtime/gpu-pack.json`](runtime/gpu-pack.json), about 850 MB from
+   `files.pythonhosted.org`), checks each wheel, and unpacks it into the app's
+   local data folder (`%LOCALAPPDATA%\io.github.bella-1337.pii-review\gpu`,
+   `~/.local/share/io.github.bella-1337.pii-review/gpu`). This start runs on
+   the CPU; if the download fails, the next start tries again.
+2. **Later starts.** A separate process checks that the GPU runs thinc's
+   operations correctly and has 3 GiB of memory free; then the pipelines load
+   on the GPU, and the splash screen says so. If the check or the loading
+   fails, they run on the CPU.
+
+Nothing else changes: the text never leaves the computer, and the download
+sends nothing but the requests for the pinned files. `engine.log` names the
+device and any reason for the CPU. Set `PII_REVIEW_DEVICE=cpu` in the settings
+file to skip the driver check, the download, and the GPU. Delete the `gpu`
+folder to remove the pack.
+
+macOS and Linux arm64 always run on the CPU: thinc's Apple GPU backend runs
+these pipelines on the CPU anyway, and NVIDIA wheels exist only for x64 here.
+
+To update the pack, change the versions in
+[`../presidio/gpu-requirements.in`](../presidio/gpu-requirements.in) (shared
+with the compose GPU image) and run
+`uv run --no-project --python 3.12 desktop/scripts/pin_gpu_pack.py`.
 
 ## Settings
 
@@ -117,7 +154,8 @@ Windows, see Tauri's [Windows signing guide](https://v2.tauri.app/distribute/sig
 ## Size
 
 About 2.1 GB installed. Most of it is the three spaCy pipelines (1.65 GB);
-Xberg is 120 MB and CPython with the other packages about 150 MB.
+Xberg is 120 MB and CPython with the other packages about 150 MB. The GPU
+pack, where downloaded, takes another 1.5 GB.
 
 ## Licences
 

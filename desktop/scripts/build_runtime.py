@@ -214,6 +214,8 @@ def stage_config(out: Path) -> None:
     for name in ("analyzer.yaml", "analyzer-engine.yaml", "recognizers.yaml"):
         shutil.copy2(REPO / "presidio" / name, config / "presidio" / name)
     shutil.copy2(REPO / "xberg" / "xberg-config.toml", config / "xberg.toml")
+    # Pins of the GPU pack the app downloads on computers with an NVIDIA GPU.
+    shutil.copy2(RUNTIME / "gpu-pack.json", config / "gpu-pack.json")
 
 
 def sign_macos(out: Path, identity: str) -> None:

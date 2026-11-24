@@ -1,0 +1,36 @@
+# Optional: run the Presidio analyzer's spaCy pipelines on an NVIDIA GPU.
+#
+#   docker compose -f compose.yml -f compose.gpu.yml up -d --build
+#
+# Needs an x86_64 host with the NVIDIA driver and the NVIDIA Container Toolkit.
+# The analyzer image gets CuPy and the CUDA 12 libraries (about 1.5 GB more).
+# If the GPU cannot be used, Presidio logs "Failed to enable GPU" and runs on
+# the CPU.
+
+services:
+  presidio-analyzer:
+    image: pii-review-presidio-analyzer:2.2.362-1-gpu
+    build:
+      args:
+        GPU: "true"
+    environment:
+      # Presidio's spaCy engine then calls spacy.require_gpu() before loading.
+      PRESIDIO_DEVICE: cuda
+      # Each worker loads its own pipelines (about 2 GiB of GPU memory each):
+      # CUDA does not survive a fork, so the models are not preloaded.
+      WORKERS: ${PRESIDIO_ANALYZER_WORKERS:-1}
+      GUNICORN_CMD_ARGS: --no-control-socket
+      # CuPy's compiled-kernel cache; the file system is read-only.
+      CUPY_CACHE_DIR: /tmp/cupy
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  pii-review:
+    environment:
+      # Keep equal to the analyzer's workers.
+      PII_REVIEW_ANALYZE_PARALLEL: "${PII_REVIEW_ANALYZE_PARALLEL:-${PRESIDIO_ANALYZER_WORKERS:-1}}"

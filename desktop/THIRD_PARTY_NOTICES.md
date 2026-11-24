@@ -17,5 +17,16 @@ them, under `resources/` in the app's folder.
 | Tauri and its Rust dependencies | 2.x | MIT or Apache-2.0 | the app binary |
 | Microsoft Edge WebView2 runtime installer (Windows installers only) | | Microsoft software licence | run by the installer when WebView2 is missing |
 
+On Windows and Linux x64 computers with an NVIDIA GPU, the app downloads these
+from PyPI on its first start (pinned in `runtime/gpu-pack.json`); the
+installers do not contain them. They are unpacked with their licence files
+into the app's local data folder, under `gpu/`.
+
+| Component | Version | Licence |
+| --- | --- | --- |
+| CuPy (`cupy-cuda12x`) | 14.2.0 | MIT, with the licences of its bundled code in its `*.dist-info` |
+| `cuda-pathfinder` | 1.9.1 | Apache-2.0 |
+| NVIDIA CUDA runtime, NVRTC, cuBLAS, cuRAND (`nvidia-*-cu12`) | 12.9 | NVIDIA CUDA Toolkit EULA (see each package's `*.dist-info`) |
+
 `fr_core_news_lg` is under LGPL-LR. Its obligations apply when the installers
 are distributed outside your organisation; review them before doing so.

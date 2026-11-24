@@ -69,13 +69,33 @@ reverse proxy in front of it and keep `PII_REVIEW_BIND=127.0.0.1`.
 The first build downloads the German and French spaCy pipelines (about
 1.1 GB). See `.env.example` for every setting.
 
+### NVIDIA GPU (optional)
+
+On an x86_64 host with the NVIDIA driver and the
+[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/),
+the analyzer can run its spaCy pipelines on a GPU:
+
+```sh
+docker compose -f compose.yml -f compose.gpu.yml up -d --build
+```
+
+[`compose.gpu.yml`](compose.gpu.yml) builds the analyzer with CuPy and the
+CUDA 12 libraries ([`presidio/gpu-requirements.txt`](presidio/gpu-requirements.txt),
+pinned by hash; the image grows from 2.2 to 3.8 GB), reserves one GPU, and
+sets `PRESIDIO_DEVICE=cuda`. The models are not preloaded in this mode (CUDA
+does not survive gunicorn's fork), so each analyzer worker loads its own
+pipelines, about 2 GiB of GPU memory each; `PRESIDIO_ANALYZER_WORKERS`
+defaults to 1 here. If the GPU cannot be used, the analyzer logs
+`Failed to enable GPU (cuda), falling back to CPU` and runs on the CPU.
+
 ## Desktop app
 
 The same tool also ships as a desktop app for macOS, Windows, and Linux, with
 installers that bring everything along (Python, Presidio and its models, Xberg,
 Tesseract data) and need no Docker or internet connection. It runs for the
-person using the computer, without a LiteLLM key. See
-[desktop/README.md](desktop/README.md).
+person using the computer, without a LiteLLM key. On Windows and Linux x64
+computers with an NVIDIA GPU, it downloads GPU support once and runs the
+language models on the GPU. See [desktop/README.md](desktop/README.md).
 
 ## OCR
 
@@ -179,4 +199,6 @@ The upstream images and models keep their own licences: Presidio (MIT), Xberg
 (Apache-2.0), spaCy `en_core_web_lg` and `de_core_news_lg` (MIT), and
 `fr_core_news_lg` (LGPL-LR, the Lesser General Public License for Linguistic
 Resources). LGPL-LR obligations apply when the analyzer image is distributed
-outside your organisation; review them before doing so.
+outside your organisation; review them before doing so. The GPU analyzer
+image (`compose.gpu.yml`) also contains CuPy (MIT) and NVIDIA's CUDA runtime,
+NVRTC, cuBLAS, and cuRAND libraries (NVIDIA CUDA Toolkit EULA).
