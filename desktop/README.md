@@ -8,9 +8,14 @@ the app downloads GPU support once (see [NVIDIA GPU](#nvidia-gpu)).
 
 | Platform | Installers | Built on |
 | --- | --- | --- |
-| macOS 11+ (Apple silicon, Intel) | `.dmg` | `macos-14`, `macos-15-intel` |
+| macOS 15+ (Apple silicon) | `.dmg` | `macos-15` |
 | Windows 10/11 x64 | `.exe` (per-user NSIS) and `.msi` | `windows-2022` |
-| Linux x64 and arm64 | `.deb`, `.rpm`, `.AppImage` | `ubuntu-22.04`, `ubuntu-22.04-arm` |
+| Linux x64 and arm64 with glibc 2.39+ (Ubuntu 24.04, Debian 13, Fedora 40, or later) | `.deb`, `.rpm`, `.AppImage` | `ubuntu-24.04`, `ubuntu-24.04-arm` |
+
+The minimums are the bundled Xberg 1.3.10 binaries': its macOS arm64 libraries
+need macOS 15, its Linux build glibc 2.39. There is no Intel Mac build:
+`cryptography`, which Presidio's anonymizer needs, has published no macOS
+x86_64 wheels since 49.0.
 
 ## How it works
 

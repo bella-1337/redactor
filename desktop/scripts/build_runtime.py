@@ -49,6 +49,9 @@ def host_target() -> str:
     if arch is None:
         raise SystemExit(f"unsupported CPU architecture: {machine}")
     if sys.platform == "darwin":
+        if arch != "aarch64":
+            # cryptography (Presidio's anonymizer) has no macOS x86_64 wheels.
+            raise SystemExit("macOS builds are for Apple silicon only")
         return f"{arch}-apple-darwin"
     if sys.platform.startswith("linux"):
         return f"{arch}-unknown-linux-gnu"

@@ -9,10 +9,6 @@
         "asset": "xberg-cli-aarch64-apple-darwin.tar.gz",
         "sha256": "378cc1a7e76addb1302944fd155daead565dba1aa913cec56d19ef2a5878b45a"
       },
-      "x86_64-apple-darwin": {
-        "asset": "xberg-cli-x86_64-apple-darwin.tar.gz",
-        "sha256": "f5e800c579e4863503beaecac75d0b433cf77fdb93966fc534697722b0f3fde0"
-      },
       "x86_64-unknown-linux-gnu": {
         "asset": "xberg-cli-x86_64-unknown-linux-gnu.tar.gz",
         "sha256": "851fb4f8ea9fb2446886555d6f4cae963c234e923c9b73cee2af8efc15bd063f"
