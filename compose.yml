@@ -20,7 +20,10 @@ services:
     logging: *logging
     image: pii-review:0.4.0
     build:
-      context: ./app
+      # The package in app/ is shared with the desktop app, so the context is
+      # the repository root; images/pii-review/Dockerfile.dockerignore trims it.
+      context: .
+      dockerfile: images/pii-review/Dockerfile
       labels:
         org.opencontainers.image.title: pii-review
         org.opencontainers.image.description: Page that shows the personal data Presidio and a local model find and masks what the user selects
@@ -81,29 +84,22 @@ services:
 
   presidio-analyzer:
     logging: *logging
-    image: pii-review-presidio-analyzer:2.2.362-1
+    image: pii-review-presidio-analyzer:2.2.362-2
     build:
-      context: ./presidio
+      context: ./images/presidio-analyzer
       labels:
         org.opencontainers.image.title: pii-review-presidio-analyzer
         org.opencontainers.image.description: Presidio analyzer with English, German, and French spaCy pipelines
-        org.opencontainers.image.version: 2.2.362-1
+        org.opencontainers.image.version: 2.2.362-2
         org.opencontainers.image.base.name: mcr.microsoft.com/presidio-analyzer:2.2.362
         org.opencontainers.image.licenses: MIT AND LGPL-LR
+    # Its configuration (images/presidio-analyzer/conf) is built into the image.
     environment:
-      PRESIDIO_NLP_ENGINE: spacy
-      NLP_CONF_FILE: /app/presidio_analyzer/conf/tool-analyzer.yaml
-      ANALYZER_CONF_FILE: /app/presidio_analyzer/conf/tool-analyzer-engine.yaml
-      RECOGNIZER_REGISTRY_CONF_FILE: /app/presidio_analyzer/conf/tool-recognizers.yaml
       WORKERS: ${PRESIDIO_ANALYZER_WORKERS:-2}
       # Load the pipelines once before forking so workers share them (about
       # 2.5 GiB in all instead of 2.4 GiB per worker). No control socket: the
       # file system is read-only.
       GUNICORN_CMD_ARGS: --no-control-socket --preload
-    volumes:
-      - ./presidio/analyzer.yaml:/app/presidio_analyzer/conf/tool-analyzer.yaml:ro
-      - ./presidio/analyzer-engine.yaml:/app/presidio_analyzer/conf/tool-analyzer-engine.yaml:ro
-      - ./presidio/recognizers.yaml:/app/presidio_analyzer/conf/tool-recognizers.yaml:ro
     networks: [backend]
     read_only: true
     tmpfs:
@@ -152,13 +148,18 @@ services:
 
   # Document extraction with Xberg's upload API. It sits alone with the page on
   # the internal `extract` network: no internet, so it cannot fetch anything a
-  # document links to, and local-file inputs are off (xberg/xberg-config.toml).
+  # document links to, and local-file inputs are off (images/xberg/xberg.toml,
+  # built into the image).
   xberg:
     logging: *logging
-    image: ghcr.io/xberg-io/xberg:1.3.10-core@sha256:f0a66d39f7322c273bb4ba2b53f5ca00dee9f2f1b3ebbec26a283017e07a865b
-    command: ["serve", "--host", "0.0.0.0", "--port", "8000", "--config", "/etc/xberg/xberg.toml"]
-    volumes:
-      - ./xberg/xberg-config.toml:/etc/xberg/xberg.toml:ro
+    image: pii-review-xberg:1.3.10-1
+    build:
+      context: ./images/xberg
+      labels:
+        org.opencontainers.image.title: pii-review-xberg
+        org.opencontainers.image.description: Xberg document extraction with the PII review tool's configuration
+        org.opencontainers.image.version: 1.3.10-1
+        org.opencontainers.image.base.name: ghcr.io/xberg-io/xberg:1.3.10-core
     environment:
       RUST_LOG: ${XBERG_LOG_LEVEL:-warn}
       XBERG_CACHE_DIR: /tmp/xberg-cache

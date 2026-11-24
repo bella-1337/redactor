@@ -34,6 +34,8 @@ from pathlib import Path
 
 DESKTOP = Path(__file__).resolve().parents[1]
 REPO = DESKTOP.parent
+# The container images' configuration, shared with the desktop app.
+IMAGES = REPO / "images"
 RUNTIME = DESKTOP / "runtime"
 PINS = json.loads((RUNTIME / "pins.json").read_text(encoding="utf-8"))
 
@@ -212,8 +214,8 @@ def stage_config(out: Path) -> None:
     config = out / "config"
     (config / "presidio").mkdir(parents=True)
     for name in ("analyzer.yaml", "analyzer-engine.yaml", "recognizers.yaml"):
-        shutil.copy2(REPO / "presidio" / name, config / "presidio" / name)
-    shutil.copy2(REPO / "xberg" / "xberg-config.toml", config / "xberg.toml")
+        shutil.copy2(IMAGES / "presidio-analyzer" / "conf" / name, config / "presidio" / name)
+    shutil.copy2(IMAGES / "xberg" / "xberg.toml", config / "xberg.toml")
     # Pins of the GPU pack the app downloads on computers with an NVIDIA GPU.
     shutil.copy2(RUNTIME / "gpu-pack.json", config / "gpu-pack.json")
 

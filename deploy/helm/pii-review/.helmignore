@@ -1,0 +1,12 @@
+.DS_Store
+.git/
+*.swp
+*.bak
+*.tmp
+*.orig
+*~
+.idea/
+.vscode/
+# Test values for chart-testing and the unit tests; not part of the package.
+ci/
+tests/

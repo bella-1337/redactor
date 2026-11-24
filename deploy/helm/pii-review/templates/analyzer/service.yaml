@@ -1,0 +1,16 @@
+{{- $component := dict "root" $ "component" "analyzer" }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pii-review.componentName" $component }}
+  labels:
+    {{- include "pii-review.componentLabels" $component | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "pii-review.componentSelectorLabels" $component | nindent 4 }}
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+      protocol: TCP

@@ -103,7 +103,7 @@ class Service:
             "text_extensions": sorted(TEXT_EXTENSIONS),
             "document_extensions": sorted(DOCUMENT_TYPES),
             "image_extensions": sorted(ext for ext, kind in DOCUMENT_TYPES.items() if kind.image),
-            # The languages xberg/xberg-config.toml gives Tesseract.
+            # The languages images/xberg/xberg.toml gives Tesseract.
             "ocr_languages": ["English", "German", "French"],
             "operators": ["replace", "mask", "redact"],
             # "local": the desktop app's window holds the token; no key prompt.

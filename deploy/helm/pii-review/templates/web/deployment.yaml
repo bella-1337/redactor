@@ -1,0 +1,105 @@
+{{- $web := .Values.web }}
+{{- if not $web.gateways }}
+{{- fail "web.gateways must list at least one LiteLLM gateway URL" }}
+{{- end }}
+{{- if and $web.assist.key $web.assist.existingSecret }}
+{{- fail "set web.assist.key or web.assist.existingSecret, not both" }}
+{{- end }}
+{{- if and .Values.networkPolicy.enabled (or $web.ingress.enabled $web.httpRoute.enabled) (not .Values.networkPolicy.web.ingressFrom) }}
+{{- fail "networkPolicy.web.ingressFrom must select the ingress controller's or gateway's pods, or no one can reach the page" }}
+{{- end }}
+{{- $fullname := include "pii-review.fullname" . }}
+{{- $component := dict "root" $ "component" "web" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "pii-review.componentName" $component }}
+  labels:
+    {{- include "pii-review.componentLabels" $component | nindent 4 }}
+spec:
+  replicas: {{ $web.replicas }}
+  selector:
+    matchLabels:
+      {{- include "pii-review.componentSelectorLabels" $component | nindent 6 }}
+  template:
+    metadata:
+      {{- $checksum := dict }}
+      {{- if $web.assist.key }}
+      {{- $checksum = dict "checksum/secret" (include (print $.Template.BasePath "/web/secret.yaml") . | sha256sum) }}
+      {{- end }}
+      {{- include "pii-review.podMetadata" (dict "root" $ "component" "web" "values" $web "annotations" $checksum) | nindent 6 }}
+    spec:
+      {{- include "pii-review.podSpec" (dict "root" $ "values" $web "uid" 65532 "gid" 65532) | nindent 6 }}
+      terminationGracePeriodSeconds: {{ $web.terminationGracePeriodSeconds }}
+      containers:
+        - name: web
+          image: {{ include "pii-review.image" (dict "image" $web.image "root" $) | quote }}
+          imagePullPolicy: {{ $web.image.pullPolicy }}
+          {{- include "pii-review.containerSecurityContext" . | nindent 10 }}
+          env:
+            - name: PII_REVIEW_PORT
+              value: "8080"
+            - name: PII_REVIEW_GATEWAYS
+              value: {{ join "," $web.gateways | quote }}
+            - name: PII_REVIEW_ANALYZER_URL
+              value: {{ printf "http://%s-analyzer:3000" $fullname | quote }}
+            - name: PII_REVIEW_ANONYMIZER_URL
+              value: {{ printf "http://%s-anonymizer:3000" $fullname | quote }}
+            - name: PII_REVIEW_XBERG_URL
+              value: {{ printf "http://%s-xberg:8000" $fullname | quote }}
+            - name: PII_REVIEW_XBERG_TIMEOUT_SECONDS
+              value: {{ $web.xbergTimeoutSeconds | quote }}
+            - name: PII_REVIEW_LANGUAGE
+              value: {{ $web.language | quote }}
+            - name: PII_REVIEW_MAX_TEXT_BYTES
+              value: {{ $web.maxTextBytes | int64 | quote }}
+            - name: PII_REVIEW_MAX_FILE_BYTES
+              value: {{ $web.maxFileBytes | int64 | quote }}
+            - name: PII_REVIEW_REQUESTS_PER_MINUTE
+              value: {{ $web.requestsPerMinute | quote }}
+            - name: PII_REVIEW_ANALYZE_PARALLEL
+              value: {{ include "pii-review.analyzeParallel" . | quote }}
+            - name: PII_REVIEW_ASSIST_URL
+              value: {{ $web.assist.url | quote }}
+            - name: PII_REVIEW_ASSIST_MODEL
+              value: {{ $web.assist.model | quote }}
+            - name: PII_REVIEW_ASSIST_MAX_CALLS
+              value: {{ $web.assist.maxCalls | quote }}
+            {{- if or $web.assist.key $web.assist.existingSecret }}
+            - name: PII_REVIEW_ASSIST_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $web.assist.existingSecret | default (include "pii-review.componentName" $component) }}
+                  key: {{ $web.assist.existingSecretKey }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          # /health answers 503 while all 8 request slots are busy, so it only
+          # takes a busy pod out of the Service; liveness checks the socket and
+          # never restarts a pod in the middle of an analysis.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 2
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            {{- toYaml $web.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi

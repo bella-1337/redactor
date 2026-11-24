@@ -20,8 +20,8 @@ on:
     paths:
       - "app/**"
       - "desktop/**"
-      - "presidio/**"
-      - "xberg/**"
+      - "images/presidio-analyzer/**"
+      - "images/xberg/**"
       - ".github/workflows/desktop.yml"
 
 permissions:

@@ -24,9 +24,9 @@ Tauri shell (src-tauri, Rust)                 one window, system web view
 | Compose service | In the app | Bundled from |
 | --- | --- | --- |
 | `pii-review` | `app/pii_review`, unchanged apart from the desktop entry point | this repository |
-| `presidio-analyzer` | in-process `AnalyzerEngine` with `presidio/*.yaml` | Presidio 2.2.362, spaCy 3.8, `en_core_web_lg`, `de_core_news_lg`, `fr_core_news_lg` 3.8.0 |
+| `presidio-analyzer` | in-process `AnalyzerEngine` with `images/presidio-analyzer/conf/*.yaml` | Presidio 2.2.362, spaCy 3.8, `en_core_web_lg`, `de_core_news_lg`, `fr_core_news_lg` 3.8.0 |
 | `presidio-anonymizer` | in-process `AnonymizerEngine` | Presidio 2.2.362 |
-| `xberg` | the Xberg CLI's `serve`, with `xberg/xberg-config.toml` | Xberg 1.3.10 release binary, Tesseract `tessdata_fast` eng/deu/fra |
+| `xberg` | the Xberg CLI's `serve`, with `images/xberg/xberg.toml` | Xberg 1.3.10 release binary, Tesseract `tessdata_fast` eng/deu/fra |
 
 Every download is pinned and checked: Python packages by hash in
 [`runtime/requirements.txt`](runtime/requirements.txt), Xberg and the
@@ -87,7 +87,7 @@ macOS and Linux arm64 always run on the CPU: thinc's Apple GPU backend runs
 these pipelines on the CPU anyway, and NVIDIA wheels exist only for x64 here.
 
 To update the pack, change the versions in
-[`../presidio/gpu-requirements.in`](../presidio/gpu-requirements.in) (shared
+[`../images/presidio-analyzer/gpu-requirements.in`](../images/presidio-analyzer/gpu-requirements.in) (shared
 with the compose GPU image) and run
 `uv run --no-project --python 3.12 desktop/scripts/pin_gpu_pack.py`.
 

@@ -1,0 +1,99 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $web := dict "root" $ "component" "web" }}
+{{- $analyzer := dict "root" $ "component" "analyzer" }}
+{{- $anonymizer := dict "root" $ "component" "anonymizer" }}
+{{- $xberg := dict "root" $ "component" "xberg" }}
+# Everything of this release is denied in both directions unless a policy
+# below allows it, as compose.yml's internal networks.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "pii-review.fullname" . }}-default-deny
+  labels:
+    {{- include "pii-review.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "pii-review.selectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+---
+# The page: reached only by the ingress controller or gateway; reaches
+# Presidio, Xberg, DNS, and networkPolicy.web.egress (gateways, model).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "pii-review.componentName" $web }}
+  labels:
+    {{- include "pii-review.componentLabels" $web | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "pii-review.componentSelectorLabels" $web | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  {{- with .Values.networkPolicy.web.ingressFrom }}
+  ingress:
+    - from:
+        {{- toYaml . | nindent 8 }}
+      ports:
+        - port: 8080
+          protocol: TCP
+  {{- else }}
+  ingress: []
+  {{- end }}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "pii-review.componentSelectorLabels" $analyzer | nindent 14 }}
+        - podSelector:
+            matchLabels:
+              {{- include "pii-review.componentSelectorLabels" $anonymizer | nindent 14 }}
+      ports:
+        - port: 3000
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "pii-review.componentSelectorLabels" $xberg | nindent 14 }}
+      ports:
+        - port: 8000
+          protocol: TCP
+    {{- with .Values.networkPolicy.dns }}
+    - to:
+        {{- toYaml . | nindent 8 }}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    {{- end }}
+    {{- with .Values.networkPolicy.web.egress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- range $backend := list (list $analyzer 3000) (list $anonymizer 3000) (list $xberg 8000) }}
+{{- $component := index $backend 0 }}
+---
+# {{ $component.component }}: accepts the page only and reaches nothing, so
+# it cannot send text out or fetch anything a document links to.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "pii-review.componentName" $component }}
+  labels:
+    {{- include "pii-review.componentLabels" $component | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "pii-review.componentSelectorLabels" $component | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "pii-review.componentSelectorLabels" $web | nindent 14 }}
+      ports:
+        - port: {{ index $backend 1 }}
+          protocol: TCP
+  egress: []
+{{- end }}
+{{- end }}

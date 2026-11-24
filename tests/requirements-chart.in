@@ -1,0 +1,2 @@
+# Test-only: the Helm chart tests parse helm template output.
+pyyaml==6.0.3

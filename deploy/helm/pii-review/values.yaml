@@ -1,0 +1,266 @@
+# PII review on Kubernetes. Every setting except web.gateways has a default.
+#
+#   helm install pii-review deploy/helm/pii-review \
+#     --set global.imageRegistry=ghcr.io/<owner> \
+#     --set 'web.gateways={https://litellm.example.test}'
+#
+# The defaults mirror compose.yml: the same images, limits, and isolation.
+
+global:
+  # Registry (and path) the three images this repository builds are pushed
+  # to, e.g. ghcr.io/<owner>. Empty: the local names compose.yml builds, for a
+  # cluster that has them loaded (kind load, minikube image load).
+  imageRegistry: ""
+  imagePullSecrets: []
+  # - name: ghcr-pull
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # One service account for all pods, with no API token mounted: no pod
+  # talks to the Kubernetes API.
+  create: true
+  name: ""
+  annotations: {}
+
+# The page and its API.
+web:
+  image:
+    registry: ""          # empty: global.imageRegistry
+    repository: pii-review
+    tag: "0.4.0"
+    digest: ""            # sha256:…; pins the image when set
+    pullPolicy: IfNotPresent
+
+  # Rate limits (requestsPerMinute per key, 10 rejected keys per address) and
+  # the 60-second key cache are kept in each pod's memory: with N replicas a
+  # key may make up to N × requestsPerMinute requests a minute.
+  replicas: 1
+
+  # Required. LiteLLM gateways that check users' virtual keys
+  # (GET /v1/models); a key any of them accepts may use the page. https URLs
+  # are verified against the image's CA certificates; plain http is for
+  # gateways on a private network. Allow them in networkPolicy.web.egress.
+  gateways: []
+  # - https://litellm.example.test
+
+  # Language when detection is off or undecided: en, de, or fr.
+  language: en
+  # Largest upload (at most 250000000 bytes) and the most text one analysis
+  # covers.
+  maxFileBytes: 209715200
+  maxTextBytes: 250000000
+  # Seconds Xberg may take to read one document (10-7200).
+  xbergTimeoutSeconds: 1800
+  # Analyse and mask requests per key per minute, per pod.
+  requestsPerMinute: 30
+  # Analyzer requests in flight per analysis (1-16). Empty: the analyzer's
+  # workers × replicas, at most 16.
+  analyzeParallel: ""
+
+  # Optional local model that detects each text's language and the personal
+  # data Presidio misses, through an OpenAI-compatible API. The text is sent
+  # UNMASKED: use a model in this cluster or on a private network, never a
+  # cloud API. Allow it in networkPolicy.web.egress.
+  assist:
+    url: ""               # e.g. https://litellm.example.test/v1
+    model: pii-assist
+    maxCalls: 8           # 4000 characters each, 1-30
+    # The model's API key. Prefer existingSecret: a key set here is also
+    # stored in the Helm release.
+    key: ""
+    existingSecret: ""
+    existingSecretKey: assist-key
+
+  service:
+    type: ClusterIP
+    port: 8080
+
+  # The page is only reachable through a TLS ingress or Gateway API route.
+  # Either way, the proxy must:
+  #   - accept request bodies of 250 MiB and keep requests open for
+  #     xbergTimeoutSeconds (analyses of large texts take minutes);
+  #   - set X-Real-Ip to the client's address, replacing any value the client
+  #     sent: the page limits rejected keys per X-Real-Ip.
+  # Also set networkPolicy.web.ingressFrom to the proxy's pods.
+  ingress:
+    enabled: false
+    className: ""
+    annotations:
+      # ingress-nginx; use the equivalents for other controllers.
+      nginx.ingress.kubernetes.io/proxy-body-size: 250m
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "1800"
+      nginx.ingress.kubernetes.io/proxy-send-timeout: "1800"
+    hosts: []
+    # - pii-review.example.test
+    tls: []
+    # - secretName: pii-review-tls
+    #   hosts: [pii-review.example.test]
+
+  # Gateway API HTTPRoute, instead of an Ingress. Body-size limits are set on
+  # the Gateway's implementation, not on the route.
+  httpRoute:
+    enabled: false
+    annotations: {}
+    parentRefs: []
+    # - name: public
+    #   namespace: gateway-system
+    #   sectionName: https
+    hostnames: []
+    # Matches xbergTimeoutSeconds.
+    requestTimeout: 1800s
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      # A 200 MiB upload plus its extracted text and detections.
+      memory: 3Gi
+
+  # In-flight analyses are cut off when a pod stops.
+  terminationGracePeriodSeconds: 60
+  podAnnotations: {}
+  podLabels: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+
+# Presidio analyzer with English, German, and French spaCy pipelines and the
+# tool's recognizers (images/presidio-analyzer).
+analyzer:
+  image:
+    registry: ""
+    repository: pii-review-presidio-analyzer
+    tag: "2.2.362-2"
+    digest: ""
+    pullPolicy: IfNotPresent
+  replicas: 1
+  # Gunicorn workers per pod. The pipelines are loaded once and shared
+  # (about 2.5 GiB); each worker adds about 0.1 GiB.
+  workers: 2
+
+  # Run the spaCy pipelines on an NVIDIA GPU (x86_64 nodes with the NVIDIA
+  # device plugin). Each worker then loads its own pipelines (about 2 GiB of
+  # GPU memory each): CUDA does not survive gunicorn's fork.
+  gpu:
+    enabled: false
+    imageTag: "2.2.362-2-gpu"
+    imageDigest: ""
+    workers: 1
+    resourceName: nvidia.com/gpu
+    count: 1
+    nodeSelector: {}
+    tolerations: []
+    # - key: nvidia.com/gpu
+    #   operator: Exists
+    #   effect: NoSchedule
+
+  resources:
+    requests:
+      cpu: "1"
+      memory: 3Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+  # Empty: RollingUpdate on CPU, Recreate with a GPU (a surge pod would need a
+  # second GPU).
+  strategy: {}
+  podAnnotations: {}
+  podLabels: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+
+anonymizer:
+  image:
+    registry: mcr.microsoft.com
+    repository: presidio-anonymizer
+    tag: "2.2.362"
+    digest: sha256:a10a12a2a613d13cf29d3ad3641e3258444dd8c90403dd644a0a114c472c2483
+    pullPolicy: IfNotPresent
+  replicas: 1
+  workers: 2
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  podAnnotations: {}
+  podLabels: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+
+# Xberg document extraction with OCR, with the tool's configuration
+# (images/xberg).
+xberg:
+  image:
+    registry: ""
+    repository: pii-review-xberg
+    tag: "1.3.10-1"
+    digest: ""
+    pullPolicy: IfNotPresent
+  replicas: 1
+  logLevel: warn
+  # Scratch space for documents being read. It is memory-backed, so it counts
+  # against the memory limit below.
+  tmpSize: 1Gi
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      # 4 GiB for Xberg plus tmpSize.
+      memory: 5Gi
+  podAnnotations: {}
+  podLabels: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+
+# Network isolation, as compose.yml's internal networks: everything is denied,
+# then the page may reach Presidio, Xberg, DNS, and web.egress; Presidio and
+# Xberg accept only the page and reach nothing. Needs a network plugin that
+# enforces NetworkPolicy (Calico, Cilium, …).
+networkPolicy:
+  enabled: true
+  web:
+    # Who may connect to the page: the ingress controller's or gateway's pods.
+    # Required with web.ingress or web.httpRoute. kubectl port-forward works
+    # without it.
+    ingressFrom: []
+    # - namespaceSelector:
+    #     matchLabels:
+    #       kubernetes.io/metadata.name: ingress-nginx
+    #   podSelector:
+    #     matchLabels:
+    #       app.kubernetes.io/name: ingress-nginx
+    # Where the page may connect besides Presidio, Xberg, and DNS: the
+    # gateways in web.gateways and the model in web.assist.url. NetworkPolicy
+    # rules, as in egress[] of a NetworkPolicy. Narrow the CIDR to your
+    # gateways' addresses where you can.
+    egress:
+      - to:
+          - ipBlock:
+              cidr: 0.0.0.0/0
+        ports:
+          - port: 443
+            protocol: TCP
+  # The cluster DNS the page resolves gateway names with.
+  dns:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns

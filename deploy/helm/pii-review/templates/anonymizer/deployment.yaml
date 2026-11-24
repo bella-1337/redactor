@@ -1,0 +1,64 @@
+{{- $anonymizer := .Values.anonymizer }}
+{{- $component := dict "root" $ "component" "anonymizer" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "pii-review.componentName" $component }}
+  labels:
+    {{- include "pii-review.componentLabels" $component | nindent 4 }}
+spec:
+  replicas: {{ $anonymizer.replicas }}
+  selector:
+    matchLabels:
+      {{- include "pii-review.componentSelectorLabels" $component | nindent 6 }}
+  template:
+    metadata:
+      {{- include "pii-review.podMetadata" (dict "root" $ "component" "anonymizer" "values" $anonymizer) | nindent 6 }}
+    spec:
+      {{- include "pii-review.podSpec" (dict "root" $ "values" $anonymizer "uid" 1001 "gid" 1001 "noDns" true) | nindent 6 }}
+      containers:
+        - name: anonymizer
+          image: {{ include "pii-review.image" (dict "image" $anonymizer.image "root" $) | quote }}
+          imagePullPolicy: {{ $anonymizer.image.pullPolicy }}
+          {{- include "pii-review.containerSecurityContext" . | nindent 10 }}
+          env:
+            - name: PORT
+              value: "3000"
+            - name: WORKERS
+              value: {{ $anonymizer.workers | quote }}
+            - name: GUNICORN_CMD_ARGS
+              value: --no-control-socket
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 24
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            {{- toYaml $anonymizer.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 64Mi

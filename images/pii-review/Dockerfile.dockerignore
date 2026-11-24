@@ -1,0 +1,5 @@
+# The build context is the repository root; send only the Python package.
+*
+!app/pii_review
+**/__pycache__
+**/*.pyc

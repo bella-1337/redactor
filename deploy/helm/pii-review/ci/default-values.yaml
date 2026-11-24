@@ -1,0 +1,4 @@
+# The smallest working configuration: the defaults plus one gateway.
+web:
+  gateways:
+    - https://litellm.example.test

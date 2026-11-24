@@ -1,0 +1,16 @@
+apiVersion: v2
+name: pii-review
+description: >-
+  A page where people check the personal data in a text, document, scan, or
+  image, choose what to mask, and copy the masked result. Runs the page,
+  Presidio (analyzer and anonymizer), and Xberg, with network policies that
+  keep Presidio and Xberg off the network.
+type: application
+# The chart's own version; bump it on every change to the chart.
+version: 0.1.0
+# The pii-review image's version.
+appVersion: "0.4.0"
+kubeVersion: ">=1.27.0-0"
+keywords: [pii, presidio, privacy, anonymization]
+sources:
+  - https://github.com/microsoft/presidio

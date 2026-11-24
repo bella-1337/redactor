@@ -1,0 +1,102 @@
+{{- $analyzer := .Values.analyzer }}
+{{- $gpu := $analyzer.gpu }}
+{{- $component := dict "root" $ "component" "analyzer" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "pii-review.componentName" $component }}
+  labels:
+    {{- include "pii-review.componentLabels" $component | nindent 4 }}
+spec:
+  replicas: {{ $analyzer.replicas }}
+  {{- if $analyzer.strategy }}
+  strategy:
+    {{- toYaml $analyzer.strategy | nindent 4 }}
+  {{- else if $gpu.enabled }}
+  strategy:
+    type: Recreate
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "pii-review.componentSelectorLabels" $component | nindent 6 }}
+  template:
+    metadata:
+      {{- include "pii-review.podMetadata" (dict "root" $ "component" "analyzer" "values" $analyzer) | nindent 6 }}
+    spec:
+      {{- $scheduling := deepCopy $analyzer }}
+      {{- if $gpu.enabled }}
+      {{- $_ := set $scheduling "nodeSelector" (merge (dict) ($gpu.nodeSelector | default dict) ($analyzer.nodeSelector | default dict)) }}
+      {{- $_ := set $scheduling "tolerations" (concat ($analyzer.tolerations | default list) ($gpu.tolerations | default list)) }}
+      {{- end }}
+      {{- include "pii-review.podSpec" (dict "root" $ "values" $scheduling "uid" 1001 "gid" 1001 "noDns" true) | nindent 6 }}
+      containers:
+        - name: analyzer
+          image: {{ include "pii-review.analyzerImage" . | quote }}
+          imagePullPolicy: {{ $analyzer.image.pullPolicy }}
+          {{- include "pii-review.containerSecurityContext" . | nindent 10 }}
+          # The configuration files are built into the image
+          # (images/presidio-analyzer/conf).
+          env:
+            - name: PORT
+              value: "3000"
+            - name: WORKERS
+              value: {{ include "pii-review.analyzerWorkers" . | quote }}
+            {{- if $gpu.enabled }}
+            # Presidio's spaCy engine calls spacy.require_gpu() before loading.
+            # CUDA does not survive a fork, so the pipelines are not preloaded.
+            - name: PRESIDIO_DEVICE
+              value: cuda
+            - name: GUNICORN_CMD_ARGS
+              value: --no-control-socket
+            - name: CUPY_CACHE_DIR
+              value: /tmp/cupy
+            {{- else }}
+            # Load the pipelines once before forking so the workers share them.
+            # No control socket: the file system is read-only.
+            - name: GUNICORN_CMD_ARGS
+              value: --no-control-socket --preload
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          # Loading the English, German, and French pipelines takes a minute
+          # or more: up to 5 minutes before the first check counts.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # All workers can be busy with long analyses; the socket still
+          # answers, so a busy analyzer is not restarted.
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            {{- $resources := deepCopy ($analyzer.resources | default dict) }}
+            {{- if $gpu.enabled }}
+            {{- $limits := $resources.limits | default dict }}
+            {{- $_ := set $limits $gpu.resourceName $gpu.count }}
+            {{- $_ := set $resources "limits" $limits }}
+            {{- end }}
+            {{- toYaml $resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 64Mi
