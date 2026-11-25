@@ -25,10 +25,10 @@ content, file names, or keys.
 
 | Service | Image | Purpose |
 | --- | --- | --- |
-| `pii-review` | local build (`app/`), Python standard library only | The page and its API. Checks keys, sends documents to Xberg, text to Presidio and the local model, and masks the selection. |
-| `presidio-analyzer` | local build (`presidio/`) on `mcr.microsoft.com/presidio-analyzer:2.2.362` | Detection in English, German, and French, with organisation names, UK formats, and German and French street addresses. |
+| `pii-review` | local build (`images/pii-review`, package in `app/pii_review`), Python standard library only | The page and its API. Checks keys, sends documents to Xberg, text to Presidio and the local model, and masks the selection. |
+| `presidio-analyzer` | local build (`images/presidio-analyzer`) on `mcr.microsoft.com/presidio-analyzer:2.2.362` | Detection in English, German, and French, with organisation names, UK formats, and German and French street addresses. |
 | `presidio-anonymizer` | `mcr.microsoft.com/presidio-anonymizer:2.2.362` | Masks the selected items. |
-| `xberg` | `ghcr.io/xberg-io/xberg:1.3.10-core` | Reads documents (`xberg serve`, upload API, 250 MiB limit), with OCR by the Tesseract engine in the image. |
+| `xberg` | local build (`images/xberg`) on `ghcr.io/xberg-io/xberg:1.3.10-core` | Reads documents (`xberg serve`, upload API, 250 MiB limit), with OCR by the Tesseract engine in the image. |
 
 Networks: only `pii-review` is published (on `127.0.0.1` by default) and can
 reach outside the host. Presidio sits on the internal `backend` network, and
@@ -80,13 +80,54 @@ docker compose -f compose.yml -f compose.gpu.yml up -d --build
 ```
 
 [`compose.gpu.yml`](compose.gpu.yml) builds the analyzer with CuPy and the
-CUDA 12 libraries ([`presidio/gpu-requirements.txt`](presidio/gpu-requirements.txt),
+CUDA 12 libraries ([`images/presidio-analyzer/gpu-requirements.txt`](images/presidio-analyzer/gpu-requirements.txt),
 pinned by hash; the image grows from 2.2 to 3.8 GB), reserves one GPU, and
 sets `PRESIDIO_DEVICE=cuda`. The models are not preloaded in this mode (CUDA
 does not survive gunicorn's fork), so each analyzer worker loads its own
 pipelines, about 2 GiB of GPU memory each; `PRESIDIO_ANALYZER_WORKERS`
 defaults to 1 here. If the GPU cannot be used, the analyzer logs
 `Failed to enable GPU (cuda), falling back to CPU` and runs on the CPU.
+
+## Kubernetes (Helm)
+
+The chart in [`deploy/helm/pii-review`](deploy/helm/pii-review) runs the same
+four services with the same images, limits, and isolation:
+
+- **Network policies** replace the internal networks: everything is denied,
+  then the page may reach Presidio, Xberg, DNS, and the addresses in
+  `networkPolicy.web.egress` (by default any address on port 443, for the
+  gateways; narrow it to yours). Presidio and Xberg accept only the page and
+  reach nothing; they have no DNS either. The cluster's network plugin must
+  enforce NetworkPolicy (Calico, Cilium, kind's kindnet; not plain flannel).
+- **Pods** meet the Pod Security "restricted" level: non-root, read-only root
+  file system, no capabilities, default seccomp profile, no service account
+  token, memory-backed `/tmp`.
+- **Exposure** through an Ingress (`web.ingress`) or a Gateway API route
+  (`web.httpRoute`), with `networkPolicy.web.ingressFrom` selecting the
+  controller's pods. The proxy must accept 250 MiB bodies, keep requests open
+  for 30 minutes, and set `X-Real-Ip` to the client's address, replacing any
+  value the client sent (the page limits rejected keys per `X-Real-Ip`).
+- **GPU** with `analyzer.gpu.enabled=true`: the `-gpu` analyzer image, one
+  `nvidia.com/gpu`, and one worker, as `compose.gpu.yml`.
+- **The local model's key** from a Secret (`web.assist.existingSecret`).
+
+The images must be in a registry the cluster can pull from
+(`global.imageRegistry`); this repository does not publish them yet. To try
+the chart on a local [kind](https://kind.sigs.k8s.io/) cluster instead:
+
+```sh
+docker compose build
+kind load docker-image pii-review:0.4.0 pii-review-presidio-analyzer:2.2.362-2 pii-review-xberg:1.3.10-1
+helm install pii-review deploy/helm/pii-review --namespace pii-review --create-namespace \
+  --set 'web.gateways={https://litellm.example.test}'
+kubectl --namespace pii-review port-forward service/pii-review-web 8080:8080
+```
+
+Rate limits and the accepted-key cache are kept in each page pod's memory, so
+with several `web.replicas` a key may make that many times
+`web.requestsPerMinute` requests. Every setting is described in
+[`values.yaml`](deploy/helm/pii-review/values.yaml) and checked by
+[`values.schema.json`](deploy/helm/pii-review/values.schema.json).
 
 ## Desktop app
 
@@ -104,7 +145,7 @@ documents with [Tesseract](https://github.com/tesseract-ocr/tesseract) 5
 (Apache-2.0), which ships in the pinned Xberg image with English, German, and
 French language data. Pages with a text layer keep their own text, so a PDF
 that mixes typed and scanned pages is read page by page. Settings in
-`xberg/xberg-config.toml`:
+`images/xberg/xberg.toml`:
 
 - `language = "eng+deu+fra"`: all three languages at once, so accents, umlauts,
   and `ß` are recognised in any document.
@@ -172,9 +213,9 @@ German and French ones were missed when the whole PDF was analysed in English.
 
 ## Detection details
 
-- `presidio/analyzer.yaml`: spaCy model per language and label mapping
+- `images/presidio-analyzer/conf/analyzer.yaml`: spaCy model per language and label mapping
   (people, organisations, places, dates, nationalities).
-- `presidio/recognizers.yaml`: Presidio's default recognizers for English,
+- `images/presidio-analyzer/conf/recognizers.yaml`: Presidio's default recognizers for English,
   German, and French; credit cards in all three; UK National Insurance numbers,
   passports, and postcodes switched on (vehicle registrations stay off); and
   German and French street-address recognizers that mask the whole address.
@@ -184,11 +225,32 @@ German and French ones were missed when the whole PDF was analysed in English.
 
 ## Development
 
+```text
+app/pii_review/      the service (also the desktop app's backend)
+images/              one folder per container image, with its configuration
+  pii-review/          the page (built from the repository root)
+  presidio-analyzer/   Presidio with the spaCy models; conf/ is built in
+  xberg/               Xberg; xberg.toml is built in
+deploy/helm/         the Helm chart
+compose.yml          Docker Compose (compose.gpu.yml for an NVIDIA GPU)
+desktop/             the desktop app (Tauri)
+tests/
+```
+
+The configuration is built into the images, so Compose and Kubernetes run the
+same files, and the desktop build copies them from `images/`.
+
 ```sh
 python3 -m unittest discover -s tests
 ```
 
-The service has no third-party Python dependencies.
+The service has no third-party Python dependencies. The chart tests need Helm
+and PyYAML; without them they are skipped:
+
+```sh
+uv run --no-project --python 3.12 --with-requirements tests/requirements-chart.txt \
+  python -m unittest tests/test_helm_chart.py
+```
 
 ## Licences
 

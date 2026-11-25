@@ -9,7 +9,7 @@
 
 services:
   presidio-analyzer:
-    image: pii-review-presidio-analyzer:2.2.362-1-gpu
+    image: pii-review-presidio-analyzer:2.2.362-2-gpu
     build:
       args:
         GPU: "true"

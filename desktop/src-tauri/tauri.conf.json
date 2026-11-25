@@ -16,7 +16,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["dmg", "app", "nsis", "msi", "deb", "rpm", "appimage"],
+    "targets": ["dmg", "app", "msi", "deb", "rpm", "appimage"],
     "category": "Utility",
     "shortDescription": "Check and mask personal data, offline",
     "longDescription": "See which personal data a text, document, scan, or image contains, choose what to mask, and copy the masked result. Presidio, spaCy, and Xberg run on this computer; nothing is stored or sent to a cloud service.",
@@ -33,7 +33,7 @@
       "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
     },
     "macOS": {
-      "minimumSystemVersion": "11.0",
+      "minimumSystemVersion": "15.0",
       "entitlements": null,
       "hardenedRuntime": true
     },

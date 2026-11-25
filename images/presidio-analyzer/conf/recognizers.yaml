@@ -1,6 +1,6 @@
 # Recognizer registry of the tool's Presidio analyzer. Presidio 2.2.362's
 # default_recognizers.yaml with
-# these changes, which keep it in step with presidio/analyzer.yaml:
+# these changes, which keep it in step with conf/analyzer.yaml:
 # - languages: English, German, and French;
 # - credit cards also in German and French, with local context words;
 # - UK National Insurance numbers, passports, and postcodes switched on (the

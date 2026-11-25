@@ -1,0 +1,204 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "pii-review chart values",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["web", "analyzer", "anonymizer", "xberg", "networkPolicy"],
+  "definitions": {
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository"],
+      "properties": {
+        "registry": {"type": "string"},
+        "repository": {"type": "string", "minLength": 1},
+        "tag": {"type": "string"},
+        "digest": {"type": "string", "pattern": "^(sha256:[a-f0-9]{64})?$"},
+        "pullPolicy": {"enum": ["Always", "IfNotPresent", "Never"]}
+      }
+    },
+    "replicas": {"type": "integer", "minimum": 0},
+    "scheduling": {
+      "podAnnotations": {"type": "object"},
+      "podLabels": {"type": "object"},
+      "nodeSelector": {"type": "object"},
+      "tolerations": {"type": "array"},
+      "affinity": {"type": "object"},
+      "topologySpreadConstraints": {"type": "array"}
+    },
+    "httpUrl": {"type": "string", "pattern": "^https?://[^\\s,]+$"}
+  },
+  "properties": {
+    "global": {
+      "type": "object",
+      "properties": {
+        "imageRegistry": {"type": "string"},
+        "imagePullSecrets": {"type": "array"}
+      }
+    },
+    "nameOverride": {"type": "string"},
+    "fullnameOverride": {"type": "string"},
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "create": {"type": "boolean"},
+        "name": {"type": "string"},
+        "annotations": {"type": "object"}
+      }
+    },
+    "web": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gateways"],
+      "properties": {
+        "image": {"$ref": "#/definitions/image"},
+        "replicas": {"$ref": "#/definitions/replicas"},
+        "gateways": {
+          "type": "array",
+          "description": "LiteLLM gateways that check users' keys; at least one.",
+          "minItems": 1,
+          "items": {"$ref": "#/definitions/httpUrl"}
+        },
+        "language": {"enum": ["en", "de", "fr"]},
+        "maxFileBytes": {"type": "integer", "minimum": 1, "maximum": 250000000},
+        "maxTextBytes": {"type": "integer", "minimum": 1, "maximum": 250000000},
+        "xbergTimeoutSeconds": {"type": "integer", "minimum": 10, "maximum": 7200},
+        "requestsPerMinute": {"type": "integer", "minimum": 1},
+        "analyzeParallel": {
+          "oneOf": [
+            {"type": "string", "maxLength": 0},
+            {"type": "integer", "minimum": 1, "maximum": 16}
+          ]
+        },
+        "assist": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "url": {"oneOf": [{"type": "string", "maxLength": 0}, {"$ref": "#/definitions/httpUrl"}]},
+            "model": {"type": "string", "minLength": 1},
+            "maxCalls": {"type": "integer", "minimum": 1, "maximum": 30},
+            "key": {"type": "string", "pattern": "^\\S*$"},
+            "existingSecret": {"type": "string"},
+            "existingSecretKey": {"type": "string", "minLength": 1}
+          }
+        },
+        "service": {
+          "type": "object",
+          "properties": {
+            "type": {"enum": ["ClusterIP", "NodePort", "LoadBalancer"]},
+            "port": {"type": "integer", "minimum": 1, "maximum": 65535}
+          }
+        },
+        "ingress": {
+          "type": "object",
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "className": {"type": "string"},
+            "annotations": {"type": "object"},
+            "hosts": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "tls": {"type": "array"}
+          }
+        },
+        "httpRoute": {
+          "type": "object",
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "annotations": {"type": "object"},
+            "parentRefs": {"type": "array"},
+            "hostnames": {"type": "array", "items": {"type": "string"}},
+            "requestTimeout": {"type": "string", "pattern": "^([0-9]+(h|m|s|ms))*$"}
+          }
+        },
+        "resources": {"type": "object"},
+        "terminationGracePeriodSeconds": {"type": "integer", "minimum": 0},
+        "podAnnotations": {"$ref": "#/definitions/scheduling/podAnnotations"},
+        "podLabels": {"$ref": "#/definitions/scheduling/podLabels"},
+        "nodeSelector": {"$ref": "#/definitions/scheduling/nodeSelector"},
+        "tolerations": {"$ref": "#/definitions/scheduling/tolerations"},
+        "affinity": {"$ref": "#/definitions/scheduling/affinity"},
+        "topologySpreadConstraints": {"$ref": "#/definitions/scheduling/topologySpreadConstraints"}
+      }
+    },
+    "analyzer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "image": {"$ref": "#/definitions/image"},
+        "replicas": {"$ref": "#/definitions/replicas"},
+        "workers": {"type": "integer", "minimum": 1, "maximum": 16},
+        "gpu": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "imageTag": {"type": "string", "minLength": 1},
+            "imageDigest": {"type": "string", "pattern": "^(sha256:[a-f0-9]{64})?$"},
+            "workers": {"type": "integer", "minimum": 1, "maximum": 16},
+            "resourceName": {"type": "string", "minLength": 1},
+            "count": {"type": "integer", "minimum": 1},
+            "nodeSelector": {"type": "object"},
+            "tolerations": {"type": "array"}
+          }
+        },
+        "resources": {"type": "object"},
+        "strategy": {"type": "object"},
+        "podAnnotations": {"$ref": "#/definitions/scheduling/podAnnotations"},
+        "podLabels": {"$ref": "#/definitions/scheduling/podLabels"},
+        "nodeSelector": {"$ref": "#/definitions/scheduling/nodeSelector"},
+        "tolerations": {"$ref": "#/definitions/scheduling/tolerations"},
+        "affinity": {"$ref": "#/definitions/scheduling/affinity"},
+        "topologySpreadConstraints": {"$ref": "#/definitions/scheduling/topologySpreadConstraints"}
+      }
+    },
+    "anonymizer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "image": {"$ref": "#/definitions/image"},
+        "replicas": {"$ref": "#/definitions/replicas"},
+        "workers": {"type": "integer", "minimum": 1},
+        "resources": {"type": "object"},
+        "podAnnotations": {"$ref": "#/definitions/scheduling/podAnnotations"},
+        "podLabels": {"$ref": "#/definitions/scheduling/podLabels"},
+        "nodeSelector": {"$ref": "#/definitions/scheduling/nodeSelector"},
+        "tolerations": {"$ref": "#/definitions/scheduling/tolerations"},
+        "affinity": {"$ref": "#/definitions/scheduling/affinity"},
+        "topologySpreadConstraints": {"$ref": "#/definitions/scheduling/topologySpreadConstraints"}
+      }
+    },
+    "xberg": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "image": {"$ref": "#/definitions/image"},
+        "replicas": {"$ref": "#/definitions/replicas"},
+        "logLevel": {"enum": ["error", "warn", "info", "debug", "trace"]},
+        "tmpSize": {"type": "string", "pattern": "^[0-9]+(Ki|Mi|Gi)$"},
+        "resources": {"type": "object"},
+        "podAnnotations": {"$ref": "#/definitions/scheduling/podAnnotations"},
+        "podLabels": {"$ref": "#/definitions/scheduling/podLabels"},
+        "nodeSelector": {"$ref": "#/definitions/scheduling/nodeSelector"},
+        "tolerations": {"$ref": "#/definitions/scheduling/tolerations"},
+        "affinity": {"$ref": "#/definitions/scheduling/affinity"},
+        "topologySpreadConstraints": {"$ref": "#/definitions/scheduling/topologySpreadConstraints"}
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "web": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ingressFrom": {"type": "array"},
+            "egress": {"type": "array"}
+          }
+        },
+        "dns": {"type": "array"}
+      }
+    }
+  }
+}

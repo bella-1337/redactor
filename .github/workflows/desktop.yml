@@ -1,7 +1,8 @@
 # Builds the PII Review desktop installers on each platform's own runner:
-#   macOS:   .dmg (Apple silicon and Intel)
-#   Windows: .exe (NSIS, per user) and .msi, with the WebView2 offline installer
-#   Linux:   .deb, .rpm, and .AppImage (x86_64 and arm64)
+#   macOS:   .dmg (Apple silicon; macOS 15 or later)
+#   Windows: .msi, with the WebView2 offline installer (no NSIS .exe for now:
+#            the bundle is over NSIS's 2 GB limit)
+#   Linux:   .deb, .rpm, and .AppImage (x86_64 and arm64; glibc 2.39 or later)
 # Every installer carries the Python runtime, Presidio and its spaCy models,
 # Xberg, and the Tesseract data (desktop/scripts/build_runtime.py).
 #
@@ -20,8 +21,8 @@ on:
     paths:
       - "app/**"
       - "desktop/**"
-      - "presidio/**"
-      - "xberg/**"
+      - "images/presidio-analyzer/**"
+      - "images/xberg/**"
       - ".github/workflows/desktop.yml"
 
 permissions:
@@ -54,20 +55,22 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # The runner images match the bundled Xberg binaries' minimums:
+          # macOS 15 for its arm64 libraries, glibc 2.39 (Ubuntu 24.04) on
+          # Linux. No Intel Mac build: cryptography (Presidio's anonymizer)
+          # has published no macOS x86_64 wheels since 49.0.
           - name: macos-arm64
-            runner: macos-14
-            bundles: app,dmg
-          - name: macos-x64
-            runner: macos-15-intel
+            runner: macos-15
             bundles: app,dmg
           - name: windows-x64
             runner: windows-2022
-            bundles: nsis,msi
+            # NSIS is off for now: the bundle (about 2.1 GB) is over its 2 GB limit.
+            bundles: msi
           - name: linux-x64
-            runner: ubuntu-22.04
+            runner: ubuntu-24.04
             bundles: deb,rpm,appimage
           - name: linux-arm64
-            runner: ubuntu-22.04-arm
+            runner: ubuntu-24.04-arm
             bundles: deb,rpm,appimage
     name: build (${{ matrix.name }})
     runs-on: ${{ matrix.runner }}

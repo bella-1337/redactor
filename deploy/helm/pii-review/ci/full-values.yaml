@@ -1,0 +1,62 @@
+# Every optional part switched on: registry, GPU, ingress, assist model with an
+# existing secret, and several replicas (disruption budgets, rate-limit note).
+global:
+  imageRegistry: ghcr.io/example
+  imagePullSecrets:
+    - name: ghcr-pull
+web:
+  replicas: 2
+  gateways:
+    - https://litellm.example.test
+    - http://litellm.internal.example.test:4000
+  language: de
+  assist:
+    url: http://ollama.models.svc.cluster.local:11434/v1
+    model: qwen3.5:4b
+    existingSecret: pii-review-assist
+  ingress:
+    enabled: true
+    className: nginx
+    hosts: [pii-review.example.test]
+    tls:
+      - secretName: pii-review-tls
+        hosts: [pii-review.example.test]
+analyzer:
+  replicas: 2
+  gpu:
+    enabled: true
+    nodeSelector:
+      nvidia.com/gpu.present: "true"
+    tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+networkPolicy:
+  web:
+    ingressFrom:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: ingress-nginx
+        podSelector:
+          matchLabels:
+            app.kubernetes.io/name: ingress-nginx
+    egress:
+      - to:
+          - ipBlock:
+              cidr: 0.0.0.0/0
+        ports:
+          - port: 443
+            protocol: TCP
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: models
+        ports:
+          - port: 11434
+            protocol: TCP
+      - to:
+          - ipBlock:
+              cidr: 10.0.0.0/8
+        ports:
+          - port: 4000
+            protocol: TCP

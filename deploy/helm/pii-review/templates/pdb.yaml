@@ -1,0 +1,20 @@
+{{- /* A disruption budget only for components with more than one replica:
+one replica with minAvailable 1 would block node drains. */}}
+{{- range $name := list "web" "analyzer" "anonymizer" "xberg" }}
+{{- $values := index $.Values $name }}
+{{- if gt (int $values.replicas) 1 }}
+{{- $component := dict "root" $ "component" $name }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "pii-review.componentName" $component }}
+  labels:
+    {{- include "pii-review.componentLabels" $component | nindent 4 }}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "pii-review.componentSelectorLabels" $component | nindent 6 }}
+{{- end }}
+{{- end }}

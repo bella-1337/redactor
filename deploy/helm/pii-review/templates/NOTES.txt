@@ -1,0 +1,41 @@
+PII review is installed as {{ include "pii-review.componentName" (dict "root" $ "component" "web") }} in namespace {{ .Release.Namespace }}.
+
+The analyzer loads its language models first, which takes a minute or two:
+
+  kubectl --namespace {{ .Release.Namespace }} rollout status deployment/{{ include "pii-review.componentName" (dict "root" $ "component" "analyzer") }}
+
+{{- if .Values.web.ingress.enabled }}
+
+Open https://{{ first .Values.web.ingress.hosts }}/
+{{- else if .Values.web.httpRoute.enabled }}
+
+Open the page on the Gateway {{ (first .Values.web.httpRoute.parentRefs).name }}{{ with .Values.web.httpRoute.hostnames }} at https://{{ first . }}/{{ end }}.
+{{- else }}
+
+The page has no ingress. To try it from this computer:
+
+  kubectl --namespace {{ .Release.Namespace }} port-forward service/{{ include "pii-review.componentName" (dict "root" $ "component" "web") }} 8080:{{ .Values.web.service.port }}
+
+and open http://127.0.0.1:8080/.
+{{- end }}
+{{- if or .Values.web.ingress.enabled .Values.web.httpRoute.enabled }}
+
+The proxy in front must accept 250 MiB request bodies, keep requests open for
+{{ .Values.web.xbergTimeoutSeconds }} seconds, and set X-Real-Ip to the client's address,
+replacing any value the client sent.
+{{- end }}
+{{- if not .Values.networkPolicy.enabled }}
+
+WARNING: networkPolicy.enabled is false. Presidio and Xberg can reach the
+network, and any pod in the cluster can reach them and the page.
+{{- end }}
+{{- if .Values.web.assist.url }}
+
+The local model at {{ .Values.web.assist.url }} receives texts UNMASKED. Use a model in
+this cluster or on a private network, never a cloud API.
+{{- end }}
+{{- if gt (int .Values.web.replicas) 1 }}
+
+Rate limits are per pod: with {{ .Values.web.replicas }} replicas a key may make up to
+{{ mul (int .Values.web.replicas) (int .Values.web.requestsPerMinute) }} requests a minute.
+{{- end }}

@@ -1,4 +1,4 @@
-"""Tests for the custom street-address recognizers in presidio/recognizers.yaml.
+"""Tests for the custom street-address recognizers in images/presidio-analyzer/conf/recognizers.yaml.
 
 The patterns are read from the YAML file itself, so the tests check exactly what
 the analyzer loads, under its global regex flags.
@@ -13,7 +13,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-RECOGNIZERS = ROOT / "presidio" / "recognizers.yaml"
+RECOGNIZERS = ROOT / "images" / "presidio-analyzer" / "conf" / "recognizers.yaml"
 
 
 def load_patterns() -> tuple[int, dict[str, re.Pattern[str]]]:

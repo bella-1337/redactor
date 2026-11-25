@@ -1,11 +1,11 @@
 # NLP configuration of the tool's Presidio analyzer: English, German, and
-# French spaCy pipelines (presidio/Dockerfile), with organisation names (ORG)
+# French spaCy pipelines (images/presidio-analyzer/Dockerfile), with organisation names (ORG)
 # detected. See analyzer-engine.yaml and recognizers.yaml.
 nlp_engine_name: spacy
 models:
   - lang_code: en
     model_name: en_core_web_lg
-  # German and French models are installed by presidio/Dockerfile.
+  # German and French models are installed by images/presidio-analyzer/Dockerfile.
   - lang_code: de
     model_name: de_core_news_lg
   - lang_code: fr

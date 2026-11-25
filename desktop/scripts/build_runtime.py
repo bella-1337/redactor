@@ -34,6 +34,8 @@ from pathlib import Path
 
 DESKTOP = Path(__file__).resolve().parents[1]
 REPO = DESKTOP.parent
+# The container images' configuration, shared with the desktop app.
+IMAGES = REPO / "images"
 RUNTIME = DESKTOP / "runtime"
 PINS = json.loads((RUNTIME / "pins.json").read_text(encoding="utf-8"))
 
@@ -47,6 +49,9 @@ def host_target() -> str:
     if arch is None:
         raise SystemExit(f"unsupported CPU architecture: {machine}")
     if sys.platform == "darwin":
+        if arch != "aarch64":
+            # cryptography (Presidio's anonymizer) has no macOS x86_64 wheels.
+            raise SystemExit("macOS builds are for Apple silicon only")
         return f"{arch}-apple-darwin"
     if sys.platform.startswith("linux"):
         return f"{arch}-unknown-linux-gnu"
@@ -212,8 +217,8 @@ def stage_config(out: Path) -> None:
     config = out / "config"
     (config / "presidio").mkdir(parents=True)
     for name in ("analyzer.yaml", "analyzer-engine.yaml", "recognizers.yaml"):
-        shutil.copy2(REPO / "presidio" / name, config / "presidio" / name)
-    shutil.copy2(REPO / "xberg" / "xberg-config.toml", config / "xberg.toml")
+        shutil.copy2(IMAGES / "presidio-analyzer" / "conf" / name, config / "presidio" / name)
+    shutil.copy2(IMAGES / "xberg" / "xberg.toml", config / "xberg.toml")
     # Pins of the GPU pack the app downloads on computers with an NVIDIA GPU.
     shutil.copy2(RUNTIME / "gpu-pack.json", config / "gpu-pack.json")
 

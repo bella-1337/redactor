@@ -1,0 +1,37 @@
+{{- $route := .Values.web.httpRoute }}
+{{- if $route.enabled }}
+{{- if not $route.parentRefs }}
+{{- fail "web.httpRoute.parentRefs must name the Gateway the route attaches to" }}
+{{- end }}
+{{- $component := dict "root" $ "component" "web" }}
+{{- $name := include "pii-review.componentName" $component }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "pii-review.componentLabels" $component | nindent 4 }}
+  {{- with $route.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  parentRefs:
+    {{- toYaml $route.parentRefs | nindent 4 }}
+  {{- with $route.hostnames }}
+  hostnames:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: {{ $name }}
+          port: {{ .Values.web.service.port }}
+      {{- with $route.requestTimeout }}
+      timeouts:
+        request: {{ . }}
+      {{- end }}
+{{- end }}

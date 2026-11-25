@@ -1,0 +1,17 @@
+# Exposed through a Gateway API route instead of an Ingress.
+web:
+  gateways:
+    - https://litellm.example.test
+  httpRoute:
+    enabled: true
+    parentRefs:
+      - name: public
+        namespace: gateway-system
+        sectionName: https
+    hostnames: [pii-review.example.test]
+networkPolicy:
+  web:
+    ingressFrom:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: gateway-system

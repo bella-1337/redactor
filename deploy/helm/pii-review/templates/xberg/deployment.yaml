@@ -1,0 +1,75 @@
+{{- $xberg := .Values.xberg }}
+{{- $component := dict "root" $ "component" "xberg" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "pii-review.componentName" $component }}
+  labels:
+    {{- include "pii-review.componentLabels" $component | nindent 4 }}
+spec:
+  replicas: {{ $xberg.replicas }}
+  selector:
+    matchLabels:
+      {{- include "pii-review.componentSelectorLabels" $component | nindent 6 }}
+  template:
+    metadata:
+      {{- include "pii-review.podMetadata" (dict "root" $ "component" "xberg" "values" $xberg) | nindent 6 }}
+    spec:
+      {{- include "pii-review.podSpec" (dict "root" $ "values" $xberg "uid" 999 "gid" 999 "noDns" true) | nindent 6 }}
+      containers:
+        - name: xberg
+          image: {{ include "pii-review.image" (dict "image" $xberg.image "root" $) | quote }}
+          imagePullPolicy: {{ $xberg.image.pullPolicy }}
+          {{- include "pii-review.containerSecurityContext" . | nindent 10 }}
+          # Its configuration (images/xberg/xberg.toml: no caches, no local
+          # files or URLs, OCR settings) is built into the image.
+          env:
+            - name: RUST_LOG
+              value: {{ $xberg.logLevel | quote }}
+            - name: XBERG_CACHE_DIR
+              value: /tmp/xberg-cache
+            - name: HF_HOME
+              value: /tmp/huggingface
+            # 250 MiB: a 200 MiB upload plus multipart framing.
+            - name: XBERG_MAX_REQUEST_BODY_BYTES
+              value: "262144000"
+            - name: XBERG_MAX_MULTIPART_FIELD_BYTES
+              value: "262144000"
+            # Only the page calls the API; no browser origin needs it.
+            - name: XBERG_CORS_ORIGINS
+              value: http://pii-review.invalid
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 36
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            {{- toYaml $xberg.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        # Documents being read; memory-backed, so nothing reaches a disk.
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ $xberg.tmpSize }}
