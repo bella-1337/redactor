@@ -756,7 +756,12 @@ class Presidio:
 
     def _anonymize_segment(
         self, text: str, results: list[dict[str, Any]], anonymizers: dict[str, dict[str, Any]]
-    ) -> tuple[str, dict[str, int]]:
+    ) -> tuple[str, dict[str, int], list[tuple[int, int]] | None]:
+        """Mask one segment: its masked text, counts, and where each result ended up.
+
+        The positions are (start, end) in the masked segment, one per result in
+        order, or None when the anonymizer's items do not give them.
+        """
         payload = json.dumps({"text": text, "anonymizers": anonymizers, "analyzer_results": results}).encode("utf-8")
         response = _post_json(self.transport, f"{self.settings.anonymizer_url}/anonymize", payload, 60, "anonymizer")
         masked = response.get("text") if isinstance(response, dict) else None
@@ -764,11 +769,20 @@ class Presidio:
             raise UpstreamError("anonymizer returned an unexpected shape")
         counts: dict[str, int] = {}
         items = response.get("items")
-        for item in items if isinstance(items, list) else []:
+        items = items if isinstance(items, list) else []
+        positions: list[tuple[int, int]] = []
+        for item in items:
             entity = item.get("entity_type") if isinstance(item, dict) else None
             if isinstance(entity, str) and ENTITY_TYPE_RE.fullmatch(entity):
                 counts[entity] = counts.get(entity, 0) + 1
-        return masked, counts
+            start, end = (item.get("start"), item.get("end")) if isinstance(item, dict) else (None, None)
+            if type(start) is int and type(end) is int and 0 <= start <= end <= len(masked):
+                positions.append((start, end))
+        # The results do not overlap (merge_overlaps), so in order of position
+        # the n-th item is where the n-th result went.
+        if len(positions) != len(items) or len(positions) != len(results):
+            return masked, counts, None
+        return masked, counts, sorted(positions)
 
     def anonymize(
         self, text: str, results: list[dict[str, Any]], anonymizers: dict[str, dict[str, Any]]
@@ -777,9 +791,14 @@ class Presidio:
 
         A whole large text in one request outlasts the anonymizer's 30-second
         worker timeout; segments cut between results give the same output.
+
+        "replacements" lists [start, end, masked_start, masked_end] for each
+        masked span: where it was in the text and where its replacement is in
+        the masked text, for the page's before-and-after view. It is left out
+        when the anonymizer does not say where its replacements went.
         """
         if not results:
-            return {"masked_text": text, "counts": {}}
+            return {"masked_text": text, "counts": {}, "replacements": []}
         segments = anonymize_segments(text, results)
         jobs = [
             (text[start:end], [{**item, "start": item["start"] - start, "end": item["end"] - start} for item in batch])
@@ -789,15 +808,27 @@ class Presidio:
             masked_parts = list(pool.map(lambda job: self._anonymize_segment(job[0], job[1], anonymizers), jobs))
         parts: list[str] = []
         counts: dict[str, int] = {}
+        replacements: list[list[int]] | None = []
         position = 0
-        for (start, end, _batch), (masked, part_counts) in zip(segments, masked_parts):
+        length = 0  # characters of masked text so far
+        for (start, end, batch), (masked, part_counts, positions) in zip(segments, masked_parts):
             parts.append(text[position:start])
+            length += start - position
+            if positions is None or replacements is None:
+                replacements = None
+            else:
+                for item, (masked_start, masked_end) in zip(sorted(batch, key=lambda item: item["start"]), positions):
+                    replacements.append([item["start"], item["end"], length + masked_start, length + masked_end])
             parts.append(masked)
+            length += len(masked)
             position = end
             for entity, count in part_counts.items():
                 counts[entity] = counts.get(entity, 0) + count
         parts.append(text[position:])
-        return {"masked_text": "".join(parts), "counts": counts}
+        answer: dict[str, Any] = {"masked_text": "".join(parts), "counts": counts}
+        if replacements is not None:
+            answer["replacements"] = replacements
+        return answer
 
 
 # ---------------------------------------------------------------------------

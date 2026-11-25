@@ -174,7 +174,11 @@
     <section id="result" class="card" aria-labelledby="step-result" hidden>
       <h2 id="step-result"><span class="step">4</span> Masked result</h2>
       <p id="result-summary" class="summary"></p>
-      <textarea id="output" rows="12" readonly spellcheck="false"></textarea>
+      <div class="toolbar">
+        <label class="pick-all"><input id="show-replacements" type="checkbox" checked> Highlight what was masked</label>
+      </div>
+      <div id="output" class="preview"></div>
+      <p id="result-detail" class="hint result-detail" aria-live="polite"></p>
       <div class="actions">
         <button id="copy" type="button">Copy</button>
         <button id="download" type="button">Download .txt</button>

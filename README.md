@@ -34,7 +34,9 @@ result.
    the word (`*@example.com`, `Project *`). The lists last while the page is
    open, for every text checked in it. Choose how everything is masked
    (replaced with its type, masked with `*`, or removed).
-5. Copy or download the masked text.
+5. Check the masked text, with every replacement highlighted: a click on
+   one says what it replaced and leads back to that place in the preview
+   (N and P go from one to the next). Then copy or download it.
 
 Nothing is stored, nothing is sent to a cloud model, and the services log no
 content, file names, or keys.

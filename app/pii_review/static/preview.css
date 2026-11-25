@@ -24,4 +24,7 @@
 /* Masked by the Always mask list: highlighted and underlined in the accent colour. */
 .added { background: var(--hit-selected); box-shadow: inset 0 -2px 0 var(--accent); border-radius: 3px; }
 /* Marked by hand: the same, and the pointer says it can be clicked away. */
-.manual { background: var(--hit-selected); box-shadow: inset 0 -2px 0 var(--accent); border-radius: 3px; cursor: pointer; }.hit.flash { outline: 2px solid var(--accent); outline-offset: 1px; }
+.manual { background: var(--hit-selected); box-shadow: inset 0 -2px 0 var(--accent); border-radius: 3px; cursor: pointer; }/* In the masked result: what replaced something, and where something was removed. */
+.replaced { background: var(--row-selected); outline: 1px solid var(--accent); border-radius: 3px; cursor: pointer; }
+.replaced.removed { color: var(--accent); font-size: 0.8em; padding: 0 2px; margin: 0 1px; }
+.hit.flash { outline: 2px solid var(--accent); outline-offset: 1px; }

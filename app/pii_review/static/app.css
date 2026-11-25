@@ -177,6 +177,8 @@ code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.85em;
 /* A fixed width, so the buttons do not move while text is being selected. */
 .selection-text { flex: 0 1 18em; min-width: 8em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0; }
 .find-nav { display: inline-flex; gap: 4px; }
+.result-detail { min-height: 1.5em; overflow-wrap: anywhere; }
+.result-detail .detail-new { background: var(--row-selected); outline: 1px solid var(--accent); }
 .manual-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 8px; }
 .manual-row .chips { margin: 0; }
 .manual-row .chip-term { padding: 0; border: none; background: none; color: var(--accent); font-size: 0.85rem; }

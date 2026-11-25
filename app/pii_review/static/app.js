@@ -1,6 +1,6 @@
 // PII review page. All user data is rendered with textContent, never as HTML.
 
-import { Decoration, EditorState, EditorView, RangeSetBuilder, StateEffect, ViewPlugin, keymap, search, searchKeymap } from "/codemirror.js";
+import { Decoration, EditorState, EditorView, RangeSetBuilder, StateEffect, ViewPlugin, WidgetType, keymap, search, searchKeymap } from "/codemirror.js";
 
 const LANGUAGE_NAMES = { en: "English", de: "German", fr: "French" };
 // Finds scored below this are marked "Unsure" (Presidio's spaCy and the local
@@ -1210,12 +1210,27 @@ function createOverview(parent) {
   new ResizeObserver(() => scheduleOverview()).observe(canvas);
 }
 
-function createPreview(host) {
+// A read-only text view lives in a shadow root of `host`: there CodeMirror
+// adds its styles as a constructed style sheet, which the page's CSP allows.
+function mountInShadow(host) {
   const shadow = host.attachShadow({ mode: "open" });
   const body = el("div", { class: "preview-body" });
   const parent = el("div", { class: "preview-editor" });
   body.append(parent);
   shadow.append(el("link", { rel: "stylesheet", href: "/preview.css" }), body);
+  return { shadow, body, parent };
+}
+
+const textViewBasics = () => [
+  EditorState.readOnly.of(true),
+  // Only "\n" ends a line, so "\r\n" stays two characters and positions match the text.
+  EditorState.lineSeparator.of("\n"),
+  EditorView.lineWrapping,
+  search({ top: true }),
+];
+
+function createPreview(host) {
+  const { shadow, body, parent } = mountInShadow(host);
   createOverview(body);
   // Shift+M masks the selection everywhere. Caught before CodeMirror sees it:
   // some keyboards report the key as "m" with Shift, which its keymap reads as M.
@@ -1236,13 +1251,8 @@ function createPreview(host) {
     state: EditorState.create({
       doc: "",
       extensions: [
-        EditorState.readOnly.of(true),
-        // Only "\n" ends a line, so "\r\n" stays two characters and the
-        // positions of the finds match the text exactly.
-        EditorState.lineSeparator.of("\n"),
-        EditorView.lineWrapping,
+        ...textViewBasics(),
         EditorView.contentAttributes.of({ "aria-label": "Preview of the text", spellcheck: "false" }),
-        search({ top: true }),
         manualHighlights,
         alwaysHighlights,
         highlights,
@@ -1409,7 +1419,6 @@ async function mask() {
       custom_terms: state.lists.always,
       operators: { DEFAULT: $("default-operator").value },
     });
-    $("output").value = result.masked_text;
     const total = Object.values(result.counts || {}).reduce((sum, count) => sum + count, 0);
     $("result-summary").textContent = total
       ? `${plural(total, "place", "places")} masked.`
@@ -1417,6 +1426,7 @@ async function mask() {
     setStatus("mask-status", "");
     setStatus("copy-status", "");
     $("result").hidden = false;
+    showResult(result);
     $("result").scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (error) {
     setStatus("mask-status", error.message, true);
@@ -1425,18 +1435,155 @@ async function mask() {
   }
 }
 
+// -- the masked result ---------------------------------------------------------
+//
+// The masked text in a read-only view. Each replacement can be highlighted;
+// a click on one says what it replaced and leads back to it in the preview.
+
+const maskedResult = { text: "", replacements: null }; // replacements: [start, end, maskedStart, maskedEnd], in order
+let resultView = null;
+let showReplacements = true;
+
+// A removed span leaves nothing in the masked text, so a small mark stands in for it.
+class RemovedMark extends WidgetType {
+  constructor(index) {
+    super();
+    this.index = index;
+  }
+
+  eq(other) {
+    return other.index === this.index;
+  }
+
+  toDOM() {
+    const [start, end] = maskedResult.replacements[this.index];
+    return el("span", { class: "replaced removed", text: "⌫", "data-replacement": String(this.index), title: replacementTitle(start, end) });
+  }
+
+  ignoreEvent() {
+    return false;
+  }
+}
+
+function replacementTitle(start, end) {
+  const original = state.text.slice(start, end).replace(/\s+/g, " ");
+  return `Replaced “${original.length > 80 ? `${original.slice(0, 80)}…` : original}”. Click for more.`;
+}
+
+function replacementsInView(view) {
+  const builder = new RangeSetBuilder();
+  const list = maskedResult.replacements;
+  if (!showReplacements || !list) return builder.finish();
+  for (const { from, to } of view.visibleRanges) {
+    let low = 0;
+    let high = list.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if (list[middle][3] < from) low = middle + 1;
+      else high = middle;
+    }
+    for (let index = low; index < list.length && list[index][2] <= to; index++) {
+      const [start, end, maskedStart, maskedEnd] = list[index];
+      if (maskedStart === maskedEnd) {
+        builder.add(maskedStart, maskedStart, Decoration.widget({ widget: new RemovedMark(index), side: 1 }));
+      } else {
+        builder.add(maskedStart, maskedEnd, Decoration.mark({ class: "replaced", attributes: { "data-replacement": String(index), title: replacementTitle(start, end) } }));
+      }
+    }
+  }
+  return builder.finish();
+}
+
+const replacementHighlights = ViewPlugin.fromClass(
+  class {
+    constructor(view) {
+      this.decorations = replacementsInView(view);
+    }
+
+    update(update) {
+      if (update.docChanged || update.viewportChanged || update.transactions.some((tr) => tr.effects.some((effect) => effect.is(refreshEffect)))) {
+        this.decorations = replacementsInView(update.view);
+      }
+    }
+  },
+  { decorations: (plugin) => plugin.decorations },
+);
+
+function describeReplacement(index) {
+  const [start, end, maskedStart, maskedEnd] = maskedResult.replacements[index];
+  const original = state.text.slice(start, end).replace(/\s+/g, " ");
+  const now = maskedResult.text.slice(maskedStart, maskedEnd);
+  const was = el("mark", { text: original.length > 200 ? `${original.slice(0, 200)}…` : original });
+  $("result-detail").replaceChildren(
+    ...(now ? [el("mark", { class: "detail-new", text: now }), " replaced ", was] : [was, " was removed"]),
+    ". ",
+    el("button", { type: "button", class: "link", text: "Show in the preview", onclick: () => showRange(start) }),
+  );
+}
+
+// N and P move between the replacements in the result.
+function moveToReplacement(direction) {
+  const list = maskedResult.replacements;
+  if (!list || !list.length) return true;
+  const head = resultView.state.selection.main.head;
+  let index = direction > 0 ? list.findIndex((item) => item[2] > head) : list.findLastIndex((item) => item[2] < head);
+  if (index < 0) index = direction > 0 ? 0 : list.length - 1;
+  resultView.dispatch({ selection: { anchor: list[index][2] }, effects: EditorView.scrollIntoView(list[index][2], { y: "center" }) });
+  describeReplacement(index);
+  return true;
+}
+
+function createResultView(host) {
+  const { shadow, parent } = mountInShadow(host);
+  return new EditorView({
+    parent,
+    root: shadow,
+    state: EditorState.create({
+      doc: "",
+      extensions: [
+        ...textViewBasics(),
+        EditorView.contentAttributes.of({ "aria-label": "Masked text", spellcheck: "false" }),
+        replacementHighlights,
+        keymap.of([{ key: "n", run: () => moveToReplacement(1) }, { key: "p", run: () => moveToReplacement(-1) }, ...searchKeymap]),
+        EditorView.domEventHandlers({
+          click(event, view) {
+            const hit = event.target instanceof Element && event.target.closest("[data-replacement]");
+            if (!hit || !view.state.selection.main.empty) return false;
+            describeReplacement(Number(hit.getAttribute("data-replacement")));
+            return true;
+          },
+        }),
+      ],
+    }),
+  });
+}
+
+function showResult(result) {
+  maskedResult.text = result.masked_text;
+  maskedResult.replacements = Array.isArray(result.replacements) ? result.replacements : null;
+  if (!resultView) resultView = createResultView($("output"));
+  resultView.dispatch({ changes: { from: 0, to: resultView.state.doc.length, insert: maskedResult.text }, selection: { anchor: 0 }, scrollIntoView: true });
+  $("show-replacements").disabled = !maskedResult.replacements;
+  $("result-detail").textContent = maskedResult.replacements
+    ? maskedResult.replacements.length
+      ? "Click a highlighted part to see what it replaced. In the text, N and P go to the next and previous one."
+      : ""
+    : "This server does not say where the replacements are, so they are not highlighted.";
+}
+
 async function copyResult() {
   try {
-    await navigator.clipboard.writeText($("output").value);
+    await navigator.clipboard.writeText(maskedResult.text);
     setStatus("copy-status", "Copied.");
   } catch {
-    $("output").select();
-    setStatus("copy-status", "Select the text and copy it manually.", true);
+    resultView.dispatch({ selection: { anchor: 0, head: maskedResult.text.length } });
+    resultView.focus();
+    setStatus("copy-status", "The text is selected: copy it with Ctrl+C (⌘C).", true);
   }
 }
 
 function downloadResult() {
-  const blob = new Blob([$("output").value], { type: "text/plain;charset=utf-8" });
+  const blob = new Blob([maskedResult.text], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = el("a", { href: url, download: "masked.txt" });
   document.body.append(link);
@@ -1495,6 +1642,10 @@ $("check-unchecked").addEventListener("click", () => startCheck("unchecked"));
 $("check-spot").addEventListener("click", () => startCheck("spot"));
 $("mask-check").addEventListener("click", () => startCheck("unsure"));
 $("check-close").addEventListener("click", closeCheck);
+$("show-replacements").addEventListener("change", (event) => {
+  showReplacements = event.target.checked;
+  if (resultView) resultView.dispatch({ effects: refreshEffect.of(null) });
+});
 $("sel-mask").addEventListener("click", maskSelection);
 $("sel-mask-all").addEventListener("click", maskSelectionEverywhere);
 $("sel-keep").addEventListener("click", keepSelection);

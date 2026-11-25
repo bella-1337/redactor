@@ -75,9 +75,14 @@ class FakeUpstreams:
         if url.endswith("/analyze"):
             return HttpResponse(200, {}, json.dumps(analyzer_results(payload["text"])).encode())
         if url.endswith("/anonymize"):
-            text = payload["text"]
+            # Like Presidio's anonymizer: items give their place in the masked
+            # text, last one first.
+            source = payload["text"]
+            parts: list[str] = []
             items = []
-            for result in sorted(payload["analyzer_results"], key=lambda r: -r["start"]):
+            position = 0
+            length = 0
+            for result in sorted(payload["analyzer_results"], key=lambda r: r["start"]):
                 operator = payload["anonymizers"].get(result["entity_type"]) or payload["anonymizers"].get(
                     "DEFAULT", {"type": "replace", "new_value": f"<{result['entity_type']}>"}
                 )
@@ -86,9 +91,14 @@ class FakeUpstreams:
                     "mask": "*" * (result["end"] - result["start"]),
                     "redact": "",
                 }[operator["type"]]
-                text = text[: result["start"]] + replacement + text[result["end"] :]
-                items.append({"entity_type": result["entity_type"], "operator": operator["type"]})
-            return HttpResponse(200, {}, json.dumps({"text": text, "items": items}).encode())
+                parts += [source[position : result["start"]], replacement]
+                length += result["start"] - position
+                items.append({"entity_type": result["entity_type"], "operator": operator["type"], "start": length, "end": length + len(replacement)})
+                length += len(replacement)
+                position = result["end"]
+            parts.append(source[position:])
+            items.reverse()
+            return HttpResponse(200, {}, json.dumps({"text": "".join(parts), "items": items}).encode())
         raise AssertionError(f"unexpected call {method} {url}")
 
 
@@ -503,6 +513,27 @@ class ChunkedAnalysisTests(unittest.TestCase):
         expected = text.replace("Zelda Quartermaine", "<PERSON>").replace("zq@example.test", "<EMAIL_ADDRESS>").replace("Berlin", "<LOCATION>")
         self.assertEqual(masked["masked_text"], expected)
         self.assertEqual(masked["counts"], {"PERSON": 4, "EMAIL_ADDRESS": 4, "LOCATION": 4})
+        # Each replacement maps a span of the text to its place in the masked
+        # text, across segments too.
+        replacements = masked["replacements"]
+        self.assertEqual(len(replacements), 12)
+        for start, end, masked_start, masked_end in replacements:
+            self.assertEqual(masked["masked_text"][masked_start:masked_end], {"Zelda Quartermaine": "<PERSON>", "zq@example.test": "<EMAIL_ADDRESS>", "Berlin": "<LOCATION>"}[text[start:end]])
+
+    def test_replacements_are_left_out_without_item_positions(self) -> None:
+        class NoPositions(FakeUpstreams):
+            def __call__(self, method: str, url: str, headers: Mapping[str, str], body: bytes | None, timeout: float) -> HttpResponse:
+                response = super().__call__(method, url, headers, body, timeout)
+                if not url.endswith("/anonymize"):
+                    return response
+                answer = json.loads(response.body)
+                answer["items"] = [{"entity_type": item["entity_type"]} for item in answer["items"]]
+                return HttpResponse(200, {}, json.dumps(answer).encode())
+
+        presidio = Presidio(settings(), NoPositions())
+        masked = presidio.anonymize(SAMPLE, review.merge_overlaps(presidio.analyze(SAMPLE)), {})
+        self.assertEqual(masked["masked_text"], "<PERSON> wrote to <EMAIL_ADDRESS> from <LOCATION>.")
+        self.assertNotIn("replacements", masked)
 
     def test_segments_never_cut_a_result(self) -> None:
         results = [{"entity_type": "PERSON", "start": s, "end": s + 10, "score": 1.0} for s in range(0, 200_000, 7_000)]
@@ -789,6 +820,10 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(masked["masked_text"], "<PERSON> <CUSTOM_TERM> to *************** from Berlin.")
         self.assertEqual(masked["counts"], {"EMAIL_ADDRESS": 1, "CUSTOM_TERM": 1, "PERSON": 1})
+        self.assertEqual(
+            [(SAMPLE[s:e], masked["masked_text"][ms:me]) for s, e, ms, me in masked["replacements"]],
+            [("Zelda Quartermaine", "<PERSON>"), ("wrote", "<CUSTOM_TERM>"), ("zq@example.test", "***************")],
+        )
 
     def test_nothing_selected_returns_the_text_unchanged(self) -> None:
         status, _, masked = self.request("POST", "/api/mask", {"text": SAMPLE, "selections": []})
