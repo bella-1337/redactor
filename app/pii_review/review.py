@@ -43,8 +43,9 @@ MAX_TEXT_BYTES_LIMIT = 250_000_000
 MAX_FILE_BYTES_LIMIT = 250_000_000
 DEFAULT_MAX_FILE_BYTES = 200 * 1024 * 1024
 MAX_SELECTIONS = 1_000_000
-MAX_CUSTOM_TERMS = 50
+MAX_CUSTOM_TERMS = 200
 MAX_CUSTOM_TERM_CHARS = 200
+MAX_WILDCARD_CHARS = 200  # the most characters a * in an extra term covers
 CUSTOM_TERM_ENTITY = "CUSTOM_TERM"
 DEFAULT_OPERATOR_KEY = "DEFAULT"
 
@@ -515,13 +516,30 @@ def parse_analyzer_results(results: Any, text: str) -> list[dict[str, Any]]:
     return detections
 
 
+def parse_custom_term(term: str) -> tuple[bool, str, bool]:
+    """Split a term into (leading *, literal, trailing *).
+
+    A * may start or end a term and stands for the rest of that word: the
+    characters up to the next whitespace, at most MAX_WILDCARD_CHARS of them.
+    "*@example.com" covers every address at example.com, "Project *" the word
+    after "Project".
+    """
+    leading, trailing = term.startswith("*"), term.endswith("*") and len(term) > 1
+    literal = term[1 if leading else 0 : len(term) - 1 if trailing else len(term)]
+    if "*" in literal:
+        raise ReviewError("A * can only start or end an extra term.")
+    if (leading or trailing) and len(literal.strip()) < 2:
+        raise ReviewError("An extra term with * needs at least two other characters.")
+    return leading, literal, trailing
+
+
 def find_custom_terms(text: str, terms: Any) -> list[dict[str, Any]]:
     """Every case-insensitive occurrence of terms the user adds by hand."""
     if terms is None:
         return []
     if not isinstance(terms, list) or len(terms) > MAX_CUSTOM_TERMS:
         raise ReviewError(f"Add at most {MAX_CUSTOM_TERMS} extra terms.")
-    results: list[dict[str, Any]] = []
+    spans: set[tuple[int, int]] = set()
     seen: set[str] = set()
     for term in terms:
         if not isinstance(term, str):
@@ -532,14 +550,25 @@ def find_custom_terms(text: str, terms: Any) -> list[dict[str, Any]]:
         if len(term) > MAX_CUSTOM_TERM_CHARS:
             raise ReviewError(f"Extra terms can be at most {MAX_CUSTOM_TERM_CHARS} characters.")
         seen.add(term.casefold())
-        # re.escape makes the term a literal: no user-controlled pattern.
-        for match in re.finditer(re.escape(term), text, re.IGNORECASE):
-            results.append(
-                {"entity_type": CUSTOM_TERM_ENTITY, "start": match.start(), "end": match.end(), "score": 1.0}
-            )
-            if len(results) > MAX_SELECTIONS:
+        leading, literal, trailing = parse_custom_term(term)
+        # re.escape makes the term a literal: no user-controlled pattern. The
+        # * is applied by hand, with a bounded reach, so matching stays linear.
+        for match in re.finditer(re.escape(literal), text, re.IGNORECASE):
+            start, end = match.start(), match.end()
+            if leading:
+                floor = max(0, start - MAX_WILDCARD_CHARS)
+                while start > floor and not text[start - 1].isspace():
+                    start -= 1
+            if trailing:
+                ceiling = min(len(text), end + MAX_WILDCARD_CHARS)
+                while end < ceiling and not text[end].isspace():
+                    end += 1
+            spans.add((start, end))
+            if len(spans) > MAX_SELECTIONS:
                 raise ReviewError("The extra terms match too often; use more specific terms.")
-    return results
+    return [
+        {"entity_type": CUSTOM_TERM_ENTITY, "start": start, "end": end, "score": 1.0} for start, end in sorted(spans)
+    ]
 
 
 def parse_selections(text: str, selections: Any) -> list[dict[str, Any]]:

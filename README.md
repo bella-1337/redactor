@@ -16,8 +16,23 @@ result.
 4. Choose what to mask. Everything found is masked unless you keep it: Mask or
    Keep a word everywhere it appears, open it to change single places, or
    search, filter (unsure, masked, kept), select many words, and decide for
-   all of them at once. Undo and redo work with Ctrl+Z and Ctrl+Shift+Z (⌘Z,
-   ⇧⌘Z). Add terms the detection missed, and choose how everything is masked
+   all of them at once; mask or keep every unsure find with one click. To
+   check words one at a time, step through the unsure words, the words not
+   yet checked, or a spot check of 20 random places, with M (mask), K
+   (keep), Space (skip), and Backspace (back); the preview follows along. The
+   page counts which words have been checked and says so before masking if
+   unsure words have not been. In the preview of the whole text, select text
+   to mask it in that place (M), everywhere (Shift+M, added to the Always mask
+   list), or to keep the finds in it (K); a selection that cuts a word takes
+   in the whole word, and one that covers part of a find widens it. N and P go
+   to the next and previous find, U to the next unsure one, and a strip
+   beside the preview shows where the finds are and scrolls there. Undo
+   and redo work with Ctrl+Z and Ctrl+Shift+Z (⌘Z, ⇧⌘Z). Two lists save
+   clicks: **Always mask** masks terms wherever they appear, even where
+   detection missed them, and **Never mask** keeps found words such as your
+   company's name. A `*` at the start or end of a term stands for the rest of
+   the word (`*@example.com`, `Project *`). The lists last while the page is
+   open, for every text checked in it. Choose how everything is masked
    (replaced with its type, masked with `*`, or removed).
 5. Copy or download the masked text.
 

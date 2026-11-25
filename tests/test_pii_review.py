@@ -244,11 +244,31 @@ class ParsingTests(unittest.TestCase):
 
     def test_custom_term_limits(self) -> None:
         with self.assertRaises(ReviewError):
-            review.find_custom_terms("x", ["t"] * 51)
+            review.find_custom_terms("x", ["t"] * (review.MAX_CUSTOM_TERMS + 1))
         with self.assertRaises(ReviewError):
             review.find_custom_terms("x", ["t" * 201])
         with self.assertRaises(ReviewError):
             review.find_custom_terms("x", "not a list")
+
+    def test_custom_term_wildcards_cover_the_rest_of_the_word(self) -> None:
+        text = "Mail anna@corp.example, bob@CORP.example or eve@other.example about Project Falcon-2 and projects."
+        found = review.find_custom_terms(text, ["*@corp.example", "Project *", "falc*"])
+        spans = [text[r["start"] : r["end"]] for r in found]
+        # Sorted by position. A leading * reaches back only, so the comma
+        # after the first address stays; "projects." has no space after "project".
+        self.assertEqual(spans, ["anna@corp.example", "bob@CORP.example", "Project Falcon-2", "Falcon-2"])
+
+    def test_custom_term_wildcards_are_bounded(self) -> None:
+        for bad in ["*", "**", "*a", "a*b", "a**"]:
+            with self.subTest(term=bad), self.assertRaises(ReviewError):
+                review.find_custom_terms("abc", [bad])
+        # A * reaches at most MAX_WILDCARD_CHARS characters, so a long run of
+        # text without spaces cannot make matching slow.
+        text = "x" * 100_000 + "@corp.example"
+        [found] = review.find_custom_terms(text, ["*@corp.example"])
+        self.assertEqual(found["end"] - found["start"], review.MAX_WILDCARD_CHARS + len("@corp.example"))
+        found = review.find_custom_terms("ab" * 50_000, ["*ab*"])
+        self.assertTrue(found)
 
     def test_selections_must_fit_the_text(self) -> None:
         self.assertEqual(

@@ -42,10 +42,68 @@
       <h2 id="step-review"><span class="step">3</span> Choose what to mask</h2>
       <p id="summary" class="summary" role="status" aria-live="polite"></p>
       <p id="summary-languages" class="hint"></p>
-      <p id="ocr-note" class="notice" hidden>This document contains images or scanned pages, and the text in them was read with OCR. Recognition errors can change or split names and numbers so that they are not detected: compare the preview with the original and add anything missed below.</p>
-      <p class="hint">Everything found will be masked unless you keep it. Decide once per word: Mask or Keep applies to every place it appears. Open a word to change single places. Detection can miss personal data or flag harmless text, so add anything it missed below.</p>
+      <p id="ocr-note" class="notice" hidden>This document contains images or scanned pages, and the text in them was read with OCR. Recognition errors can change or split names and numbers so that they are not detected: compare the preview with the original and add anything missed to the Always mask list.</p>
+      <p class="hint">Everything found will be masked unless you keep it. Decide once per word: Mask or Keep applies to every place it appears. Open a word to change single places. Detection can miss personal data or flag harmless text: use the lists to mask what it missed and to leave alone what it should not flag.</p>
+
+      <div class="lists">
+        <section class="list-box" aria-labelledby="always-title">
+          <h3 id="always-title">Always mask</h3>
+          <p class="hint">Masked wherever they appear, even where detection missed them.</p>
+          <div class="add-row">
+            <label for="always-input" class="visually-hidden">Word or phrase to always mask</label>
+            <input id="always-input" type="text" autocomplete="off" spellcheck="false" placeholder="e.g. Project Falcon">
+            <button id="always-add" type="button">Add</button>
+          </div>
+          <p id="always-status" class="status" role="status" aria-live="polite"></p>
+          <ul id="always-chips" class="chips"></ul>
+          <p id="always-empty" class="hint empty">Nothing yet.</p>
+        </section>
+        <section class="list-box" aria-labelledby="ignore-title">
+          <h3 id="ignore-title">Never mask</h3>
+          <p class="hint">Found words on this list stay, e.g. your company or product names.</p>
+          <div class="add-row">
+            <label for="ignore-input" class="visually-hidden">Word or phrase never to mask</label>
+            <input id="ignore-input" type="text" autocomplete="off" spellcheck="false" placeholder="e.g. Affinidi">
+            <button id="ignore-add" type="button">Add</button>
+          </div>
+          <p id="ignore-status" class="status" role="status" aria-live="polite"></p>
+          <ul id="ignore-chips" class="chips"></ul>
+          <p id="ignore-empty" class="hint empty">Nothing yet.</p>
+        </section>
+        <p class="hint lists-hint">Case does not matter. A * at the start or end stands for the rest of the word: <code>*@example.com</code> covers every address there, <code>Project *</code> the word after "Project". Both lists stay while this page is open, for every text you check.</p>
+      </div>
 
       <div id="word-tools">
+        <div id="unsure-row" class="toolbar" hidden>
+          <span id="unsure-label"></span>
+          <span class="choice" role="group" aria-label="Mask or keep every unsure find">
+            <button id="unsure-mask" type="button" class="mask">Mask all</button>
+            <button id="unsure-keep" type="button" class="keep">Keep all</button>
+          </span>
+        </div>
+        <div id="check-row" class="toolbar">
+          <span id="check-progress"></span>
+          <span class="spacer"></span>
+          <span>Check one at a time:</span>
+          <button id="check-unsure" type="button">Unsure words</button>
+          <button id="check-unchecked" type="button">Not checked</button>
+          <button id="check-spot" type="button" title="Up to 20 random places from the whole text, to see quickly whether detection works for it">Spot check</button>
+        </div>
+        <section id="check-panel" class="check-panel" tabindex="-1" aria-labelledby="check-title" hidden>
+          <div class="check-head">
+            <h3 id="check-title"></h3>
+            <span id="check-count" class="status" aria-live="polite"></span>
+            <progress id="check-bar" value="0" max="1"></progress>
+            <button id="check-close" type="button" class="link">Close <kbd>Esc</kbd></button>
+          </div>
+          <div id="check-body"></div>
+          <div class="check-actions choice-large">
+            <button id="check-mask" type="button" class="mask">Mask <kbd>M</kbd></button>
+            <button id="check-keep" type="button" class="keep">Keep <kbd>K</kbd></button>
+            <button id="check-skip" type="button">Skip <kbd>Space</kbd></button>
+            <button id="check-back" type="button">Back <kbd>⌫</kbd></button>
+          </div>
+        </section>
         <div class="toolbar">
           <label for="word-search" class="visually-hidden">Search words</label>
           <input id="word-search" type="search" placeholder="Search words" autocomplete="off" spellcheck="false">
@@ -53,6 +111,7 @@
           <select id="word-filter">
             <option value="all">All words</option>
             <option value="unsure">Unsure</option>
+            <option value="unchecked">Not checked</option>
             <option value="masked">Masked</option>
             <option value="kept">Kept</option>
             <option value="partly">Partly masked</option>
@@ -67,6 +126,7 @@
           <span class="spacer"></span>
           <button id="mask-picked" type="button" disabled>Mask selected</button>
           <button id="keep-picked" type="button" disabled>Keep selected</button>
+          <button id="ignore-picked" type="button" disabled title="Keep them, and add them to the Never mask list">Never mask selected</button>
           <button id="clear-picked" type="button" class="link" disabled>Clear selection</button>
         </div>
       </div>
@@ -75,11 +135,25 @@
       <button id="more-words" type="button" class="link" hidden></button>
 
       <h3>Preview</h3>
-      <p class="hint">Highlighted text will be masked; outlined text was found but will stay. Click a highlight, or put the cursor on it and press Enter, to change that one place. Ctrl+F (⌘F) searches the text.</p>
+      <p class="hint">Highlighted text will be masked; outlined text was found but will stay; underlined text is masked by your Always mask list or by you. Click a highlight, or put the cursor on it and press Enter, to change that one place. Select text to mask what detection missed. In the preview, N and P go to the next and previous find, U to the next unsure one, and Ctrl+F (⌘F) searches. The strip on the right shows where the finds are in the whole text.</p>
+      <div class="toolbar selection-bar">
+        <span id="selection-text" class="selection-text hint">Select text in the preview to mask it.</span>
+        <button id="sel-mask" type="button" disabled title="Mask the selected text in this place">Mask this <kbd>M</kbd></button>
+        <button id="sel-mask-all" type="button" disabled title="Add the selected text to the Always mask list">Mask everywhere <kbd>⇧M</kbd></button>
+        <button id="sel-keep" type="button" disabled title="Keep every find in the selected text">Keep finds here <kbd>K</kbd></button>
+        <span id="selection-status" class="status" role="status" aria-live="polite"></span>
+        <span class="spacer"></span>
+        <span class="find-nav" role="group" aria-label="Move between finds">
+          <button id="find-previous" type="button" title="Previous find (P)">◀ Previous</button>
+          <button id="find-next" type="button" title="Next find (N)">Next ▶</button>
+          <button id="find-unsure" type="button" title="Next unsure find (U)">Next unsure</button>
+        </span>
+      </div>
       <div id="preview" class="preview"></div>
-
-      <label for="custom-terms">Also mask these exact terms (one per line, case-insensitive)</label>
-      <textarea id="custom-terms" rows="3" spellcheck="false" placeholder="Project Falcon&#10;client reference 4471"></textarea>
+      <div id="manual-row" class="manual-row" hidden>
+        <span>Marked by hand:</span>
+        <ul id="manual-chips" class="chips"></ul>
+      </div>
 
       <div class="toolbar">
         <label for="default-operator">Mask by</label>
@@ -93,6 +167,7 @@
       <div class="actions">
         <button id="mask" type="button" class="primary">Mask the text</button>
         <span id="mask-status" class="status" role="status" aria-live="polite"></span>
+        <button id="mask-check" type="button" class="link" hidden>Check them now</button>
       </div>
     </section>
 

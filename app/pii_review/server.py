@@ -29,6 +29,8 @@ from pii_review import __version__
 from pii_review.review import (
     ASSIST_LANGUAGES,
     DOCUMENT_TYPES,
+    MAX_CUSTOM_TERM_CHARS,
+    MAX_CUSTOM_TERMS,
     AssistClient,
     TEXT_EXTENSIONS,
     KeyValidator,
@@ -96,6 +98,8 @@ class Service:
             "language": self.settings.language,
             "languages": list(ASSIST_LANGUAGES),
             "language_detection": self.reviewer.assist is not None,
+            "max_custom_terms": MAX_CUSTOM_TERMS,
+            "max_custom_term_chars": MAX_CUSTOM_TERM_CHARS,
             "max_text_bytes": self.settings.max_text_bytes,
             "max_file_bytes": self.settings.max_file_bytes,
             "documents": self.reviewer.extractor is not None,
