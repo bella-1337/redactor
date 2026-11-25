@@ -9,13 +9,16 @@ result.
    PowerPoint, OpenDocument, RTF, HTML, email, or plain text) or an image (PNG,
    JPEG, TIFF, WebP, BMP, GIF). Images, scanned PDF pages, and images in Office
    documents are read with OCR.
-3. See everything that was found, grouped by type, with its score, context, and
-   a highlighted preview: names, organisations, addresses, email addresses,
-   phone numbers, IBANs, card numbers, UK NHS and National Insurance numbers,
-   and more, in English, German, and French.
-4. Choose what to mask: whole types or single items, how each type is masked
-   (replaced with its type, masked with `*`, or removed), and terms the
-   detection missed.
+3. See everything that was found, listed once per word or phrase with how often
+   it appears, and a highlighted preview: names, organisations, addresses,
+   email addresses, phone numbers, IBANs, card numbers, UK NHS and National
+   Insurance numbers, and more, in English, German, and French.
+4. Choose what to mask. Everything found is masked unless you keep it: Mask or
+   Keep a word everywhere it appears, open it to change single places, or
+   search, filter (unsure, masked, kept), select many words, and decide for
+   all of them at once. Undo and redo work with Ctrl+Z and Ctrl+Shift+Z (⌘Z,
+   ⇧⌘Z). Add terms the detection missed, and choose how everything is masked
+   (replaced with its type, masked with `*`, or removed).
 5. Copy or download the masked text.
 
 Nothing is stored, nothing is sent to a cloud model, and the services log no
@@ -25,7 +28,7 @@ content, file names, or keys.
 
 | Service | Image | Purpose |
 | --- | --- | --- |
-| `pii-review` | local build (`images/pii-review`, package in `app/pii_review`), Python standard library only | The page and its API. Checks keys, sends documents to Xberg, text to Presidio and the local model, and masks the selection. |
+| `pii-review` | local build (`images/pii-review`, package in `app/pii_review`), Python standard library only; the page's text preview is CodeMirror 6, bundled into `app/pii_review/static/codemirror.js` from `app/codemirror` | The page and its API. Checks keys, sends documents to Xberg, text to Presidio and the local model, and masks the selection. |
 | `presidio-analyzer` | local build (`images/presidio-analyzer`) on `mcr.microsoft.com/presidio-analyzer:2.2.362` | Detection in English, German, and French, with organisation names, UK formats, and German and French street addresses. |
 | `presidio-anonymizer` | `mcr.microsoft.com/presidio-anonymizer:2.2.362` | Masks the selected items. |
 | `xberg` | local build (`images/xberg`) on `ghcr.io/xberg-io/xberg:1.3.10-core` | Reads documents (`xberg serve`, upload API, 250 MiB limit), with OCR by the Tesseract engine in the image. |

@@ -40,32 +40,58 @@
 
     <section id="review" class="card" aria-labelledby="step-review" hidden>
       <h2 id="step-review"><span class="step">3</span> Choose what to mask</h2>
-      <p id="summary" class="summary"></p>
+      <p id="summary" class="summary" role="status" aria-live="polite"></p>
+      <p id="summary-languages" class="hint"></p>
       <p id="ocr-note" class="notice" hidden>This document contains images or scanned pages, and the text in them was read with OCR. Recognition errors can change or split names and numbers so that they are not detected: compare the preview with the original and add anything missed below.</p>
-      <p class="hint">Detection is automatic and can miss personal data or flag harmless text. Untick anything that should stay, and add anything it missed below.</p>
+      <p class="hint">Everything found will be masked unless you keep it. Decide once per word: Mask or Keep applies to every place it appears. Open a word to change single places. Detection can miss personal data or flag harmless text, so add anything it missed below.</p>
 
-      <div class="toolbar">
-        <label for="default-operator">Mask selected items by</label>
-        <select id="default-operator">
-          <option value="replace">replacing with the type, e.g. &lt;PERSON&gt;</option>
-          <option value="mask">masking with *****</option>
-          <option value="redact">removing them</option>
-        </select>
-        <button id="select-all" type="button" class="link">Select all</button>
-        <button id="select-none" type="button" class="link">Select none</button>
+      <div id="word-tools">
+        <div class="toolbar">
+          <label for="word-search" class="visually-hidden">Search words</label>
+          <input id="word-search" type="search" placeholder="Search words" autocomplete="off" spellcheck="false">
+          <label for="word-filter" class="visually-hidden">Show</label>
+          <select id="word-filter">
+            <option value="all">All words</option>
+            <option value="unsure">Unsure</option>
+            <option value="masked">Masked</option>
+            <option value="kept">Kept</option>
+            <option value="partly">Partly masked</option>
+          </select>
+          <span class="spacer"></span>
+          <button id="undo" type="button" title="Undo (Ctrl+Z / ⌘Z)" disabled>Undo</button>
+          <button id="redo" type="button" title="Redo (Ctrl+Shift+Z / ⇧⌘Z)" disabled>Redo</button>
+        </div>
+        <div class="toolbar bulk">
+          <label class="pick-all"><input id="pick-all" type="checkbox"> <span id="pick-all-label">Select all</span></label>
+          <span id="bulk-count" class="status"></span>
+          <span class="spacer"></span>
+          <button id="mask-picked" type="button" disabled>Mask selected</button>
+          <button id="keep-picked" type="button" disabled>Keep selected</button>
+          <button id="clear-picked" type="button" class="link" disabled>Clear selection</button>
+        </div>
       </div>
 
-      <div id="groups" class="groups"></div>
+      <ul id="words" class="words"></ul>
+      <button id="more-words" type="button" class="link" hidden></button>
 
       <h3>Preview</h3>
-      <p class="hint">Highlighted text will be masked. Click a highlight to include or exclude it.</p>
-      <div id="preview" class="preview" tabindex="0"></div>
+      <p class="hint">Highlighted text will be masked; outlined text was found but will stay. Click a highlight, or put the cursor on it and press Enter, to change that one place. Ctrl+F (⌘F) searches the text.</p>
+      <div id="preview" class="preview"></div>
 
       <label for="custom-terms">Also mask these exact terms (one per line, case-insensitive)</label>
       <textarea id="custom-terms" rows="3" spellcheck="false" placeholder="Project Falcon&#10;client reference 4471"></textarea>
 
+      <div class="toolbar">
+        <label for="default-operator">Mask by</label>
+        <select id="default-operator">
+          <option value="replace">replacing with the type, e.g. &lt;PERSON&gt;</option>
+          <option value="mask">masking with *****</option>
+          <option value="redact">removing it</option>
+        </select>
+      </div>
+
       <div class="actions">
-        <button id="mask" type="button" class="primary">Mask selected</button>
+        <button id="mask" type="button" class="primary">Mask the text</button>
         <span id="mask-status" class="status" role="status" aria-live="polite"></span>
       </div>
     </section>

@@ -105,44 +105,74 @@ button:disabled { opacity: 0.6; cursor: progress; }
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 12px 0; }
 .toolbar label { margin: 0; }
 
-.groups { display: grid; gap: 8px; }
-.group { border: 1px solid var(--border); border-radius: 8px; }
-.group summary {
-  display: flex; align-items: center; gap: 10px;
-  padding: 8px 12px; cursor: pointer; list-style: none;
+.toolbar .spacer { flex: 1; }
+.toolbar.bulk { margin-top: 0; }
+.pick-all { display: flex; align-items: center; gap: 6px; font-weight: 400; }
+input[type="search"] {
+  flex: 1 1 220px;
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
 }
-.group summary::-webkit-details-marker { display: none; }
-.group .type { font-weight: 600; font-family: ui-monospace, Menlo, Consolas, monospace; }
-.group .count { color: var(--muted); margin-right: auto; }
-.group ul { list-style: none; margin: 0; padding: 0 0 6px; max-height: 320px; overflow: auto; }
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap;
+}
 
-.row { display: flex; align-items: flex-start; gap: 8px; padding: 4px 12px; border-top: 1px solid var(--border); }
-.row.selected { background: var(--row-selected); }
-.row label { display: flex; gap: 8px; font-weight: 400; margin: 0; flex: 1; min-width: 0; }
-.row .context { overflow-wrap: anywhere; font-size: 0.9rem; }
-.row .score { color: var(--muted); font-size: 0.85rem; white-space: nowrap; }
+.words {
+  list-style: none; margin: 0; padding: 0;
+  border: 1px solid var(--border); border-radius: 8px;
+  max-height: 480px; overflow: auto;
+}
+.words .empty { padding: 12px; color: var(--muted); }
+.word-row + .word-row { border-top: 1px solid var(--border); }
+.word-head { display: flex; align-items: center; gap: 10px; padding: 6px 12px; }
+.word-row.masked .word-head { background: var(--row-selected); }
+.word-head .word {
+  font-weight: 600; min-width: 0; flex: 0 1 auto;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.word-row.kept .word { color: var(--muted); font-weight: 400; }
+.word-head .count { color: var(--muted); font-size: 0.85rem; white-space: nowrap; margin-right: auto; }
+.badge {
+  font-size: 0.75rem; padding: 1px 6px; border-radius: 10px;
+  border: 1px solid var(--hit-selected); color: var(--text); white-space: nowrap;
+}
+.expand { border: none; background: none; padding: 0 6px; color: var(--muted); font-size: 1.1rem; line-height: 1; }
+.expand::before { content: "▸"; display: inline-block; transition: transform 0.15s; }
+.expand[aria-expanded="true"]::before { transform: rotate(90deg); }
+
+.choice { display: inline-flex; flex-shrink: 0; }
+.choice button { padding: 3px 12px; font-size: 0.9rem; }
+.choice button:first-child { border-radius: 6px 0 0 6px; }
+.choice button:last-child { border-radius: 0 6px 6px 0; border-left: none; }
+.choice button.mask[aria-pressed="true"] { background: var(--hit-selected); border-color: var(--hit-selected); color: #1c2430; font-weight: 600; }
+.choice button.keep[aria-pressed="true"] { background: var(--muted); border-color: var(--muted); color: var(--card); font-weight: 600; }
+
+.places { list-style: none; margin: 0; padding: 0 0 6px 40px; }
+.place, .place-more { display: flex; align-items: flex-start; gap: 8px; padding: 3px 12px 3px 0; }
+.place label { display: flex; gap: 8px; font-weight: 400; margin: 0; flex: 1; min-width: 0; }
+.place .context { overflow-wrap: anywhere; font-size: 0.9rem; }
+.place.kept .context mark { background: transparent; outline: 1px dashed var(--muted); }
+.place .link { white-space: nowrap; font-size: 0.85rem; }
+#more-words { margin-top: 6px; }
 
 mark { background: var(--hit); color: inherit; border-radius: 3px; padding: 0 2px; }
 .preview {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  max-height: 420px;
-  overflow: auto;
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 10px 12px;
   background: var(--bg);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.9rem;
+  overflow: hidden;
 }
-.preview mark.hit { cursor: pointer; text-decoration: line-through; text-decoration-color: transparent; }
-.preview mark.hit.selected { background: var(--hit-selected); text-decoration-color: currentColor; }
-.preview mark.hit:not(.selected) { background: transparent; outline: 1px dashed var(--muted); }
+/* The CodeMirror view inside is styled by preview.css (it is in a shadow root). */
 
 @media (max-width: 600px) {
   .card { padding: 14px; }
-  .group summary { flex-wrap: wrap; }
+  .word-head { flex-wrap: wrap; }
+  .places { padding-left: 12px; }
 }
 
 .more { color: var(--muted); font-style: italic; }
-.group .more { padding: 4px 12px; margin: 0; }

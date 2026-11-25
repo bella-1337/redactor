@@ -738,6 +738,16 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(self.request("GET", "/health", key=None)[2], {"status": "ok"})
         self.assertFalse(self.request("GET", "/api/config", key=None)[2]["documents"])
 
+    def test_every_served_file_is_in_the_package(self) -> None:
+        static = ROOT / "app" / "pii_review" / "static"
+        for route, (name, _) in server.STATIC_FILES.items():
+            self.assertTrue((static / name).is_file(), route)
+        # The page loads nothing that the server does not serve.
+        page = (static / "index.html").read_text() + (static / "app.js").read_text()
+        for path in ("/app.js", "/app.css", "/codemirror.js", "/preview.css"):
+            self.assertIn(path, page)
+            self.assertIn(path, server.STATIC_FILES)
+
     def test_analyze_and_mask_round_trip(self) -> None:
         status, headers, result = self.request("POST", "/api/analyze", {"text": SAMPLE})
         self.assertEqual(status, 200)

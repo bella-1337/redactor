@@ -48,6 +48,9 @@ STATIC_FILES = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/app.css": ("app.css", "text/css; charset=utf-8"),
+    "/preview.css": ("preview.css", "text/css; charset=utf-8"),
+    # CodeMirror 6, bundled from app/codemirror (see its package.json).
+    "/codemirror.js": ("codemirror.js", "text/javascript; charset=utf-8"),
 }
 
 SECURITY_HEADERS = {
@@ -64,9 +67,6 @@ SECURITY_HEADERS = {
 }
 
 MAX_CONCURRENT_REQUESTS = 8
-# The page renders at most this many characters of a text in its preview; the
-# analysis and masking always cover the whole text.
-PREVIEW_CHARS = 1_000_000
 
 
 class Service:
@@ -96,7 +96,6 @@ class Service:
             "language": self.settings.language,
             "languages": list(ASSIST_LANGUAGES),
             "language_detection": self.reviewer.assist is not None,
-            "preview_chars": PREVIEW_CHARS,
             "max_text_bytes": self.settings.max_text_bytes,
             "max_file_bytes": self.settings.max_file_bytes,
             "documents": self.reviewer.extractor is not None,
