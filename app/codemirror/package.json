@@ -1,0 +1,21 @@
+{
+  "name": "pii-review-codemirror",
+  "private": true,
+  "description": "Builds app/pii_review/static/codemirror.js, the text preview of the review page. After changing a version: npm install --ignore-scripts, npm run build, and commit package-lock.json and the bundle.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "@codemirror/search": "6.7.2",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.15",
+    "esbuild": "0.28.2"
+  },
+  "overrides": {
+    "@codemirror/view": "6.43.15",
+    "@codemirror/state": "6.7.6",
+    "style-mod": "4.1.4"
+  }
+}

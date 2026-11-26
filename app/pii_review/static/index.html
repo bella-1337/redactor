@@ -9,77 +9,224 @@
   <script type="module" src="/app.js"></script>
 </head>
 <body>
-  <header class="top">
-    <h1>PII review</h1>
-    <p class="lede">See which personal data a text, document, scan, or image contains, choose what to mask, and copy the masked result. Nothing is stored, and nothing is sent to a cloud model.</p>
+  <header class="appbar">
+    <div class="brand">
+      <h1>PII review</h1>
+      <span class="tagline">Nothing is stored, and nothing is sent to a cloud model.</span>
+    </div>
+    <nav class="stepper" aria-label="Steps">
+      <ol>
+        <li><button type="button" class="step-link" data-step="input"><span class="step">1</span> Text or document</button></li>
+        <li><button type="button" class="step-link" data-step="review" disabled><span class="step">2</span> Choose what to mask</button></li>
+        <li><button type="button" class="step-link" data-step="result" disabled><span class="step">3</span> Masked result</button></li>
+      </ol>
+    </nav>
   </header>
 
-  <main>
-    <section id="key-card" class="card" aria-labelledby="step-key">
-      <h2 id="step-key"><span class="step">1</span> Your key</h2>
-      <label for="api-key">LiteLLM virtual key</label>
-      <input id="api-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-…">
-      <p class="hint">The same key you use for the gateway. It stays in this tab's memory and is cleared when you close or reload the page.</p>
-    </section>
+  <main class="wizard">
+    <!-- Step 1: what to check -->
+    <section id="input-step" class="wizard-step" data-step="input" aria-labelledby="input-title">
+      <div class="step-body input-body">
+        <h2 id="input-title" class="step-title" tabindex="-1">Text or document</h2>
+        <p class="hint">See which personal data a text, document, scan, or image contains, choose what to mask, and copy the masked result.</p>
 
-    <section class="card" aria-labelledby="step-input">
-      <h2 id="step-input"><span class="step">2</span> Text or document</h2>
-      <label for="input-text">Paste text</label>
-      <textarea id="input-text" rows="10" spellcheck="false" placeholder="Paste the text you want to check"></textarea>
-      <div class="file-row">
-        <label for="input-file" class="file-label">…or upload a document</label>
-        <input id="input-file" type="file">
-        <button id="clear-file" type="button" class="link" hidden>Remove document</button>
+        <div id="key-card" class="key-row">
+          <label for="api-key">LiteLLM virtual key</label>
+          <input id="api-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-…">
+          <p class="hint">The same key you use for the gateway. It stays in this tab's memory and is cleared when you close or reload the page.</p>
+        </div>
+
+        <label for="input-text">Paste text</label>
+        <textarea id="input-text" spellcheck="false" placeholder="Paste the text you want to check, or drop a document anywhere on this step"></textarea>
+        <div id="drop-zone" class="file-row">
+          <label for="input-file" class="file-label">…or upload a document</label>
+          <input id="input-file" type="file">
+          <button id="clear-file" type="button" class="link" hidden>Remove document</button>
+        </div>
+        <p id="file-hint" class="hint"></p>
       </div>
-      <p id="file-hint" class="hint"></p>
-      <div class="actions">
-        <button id="analyze" type="button" class="primary">Analyse</button>
+      <footer class="wizard-footer">
         <span id="analyze-status" class="status" role="status" aria-live="polite"></span>
-      </div>
+        <span class="spacer"></span>
+        <span class="hint footer-hint">Ctrl+Enter (⌘Enter)</span>
+        <button id="analyze" type="button" class="primary">Analyse →</button>
+      </footer>
     </section>
 
-    <section id="review" class="card" aria-labelledby="step-review" hidden>
-      <h2 id="step-review"><span class="step">3</span> Choose what to mask</h2>
-      <p id="summary" class="summary"></p>
-      <p id="ocr-note" class="notice" hidden>This document contains images or scanned pages, and the text in them was read with OCR. Recognition errors can change or split names and numbers so that they are not detected: compare the preview with the original and add anything missed below.</p>
-      <p class="hint">Detection is automatic and can miss personal data or flag harmless text. Untick anything that should stay, and add anything it missed below.</p>
+    <!-- Step 2: choose what to mask -->
+    <section id="review" class="wizard-step" data-step="review" aria-labelledby="review-title" hidden>
+      <div class="review-grid">
+        <aside class="pane side-pane" aria-label="Summary, checking, and lists">
+          <h2 id="review-title" class="step-title" tabindex="-1">Choose what to mask</h2>
+          <p id="summary" class="summary" role="status" aria-live="polite"></p>
+          <p id="summary-languages" class="hint"></p>
+          <p id="ocr-note" class="notice" hidden>This document contains images or scanned pages, and the text in them was read with OCR. Recognition errors can change or split names and numbers so that they are not detected: compare the preview with the original and add anything missed to the Always mask list.</p>
+          <details class="help">
+            <summary>How it works</summary>
+            <p>Everything found will be masked unless you keep it. Decide once per word: Mask or Keep applies to every place it appears. Open a word to change single places. Detection can miss personal data or flag harmless text: use the lists to mask what it missed and to leave alone what it should not flag, or select text in the preview.</p>
+          </details>
 
-      <div class="toolbar">
-        <label for="default-operator">Mask selected items by</label>
-        <select id="default-operator">
-          <option value="replace">replacing with the type, e.g. &lt;PERSON&gt;</option>
-          <option value="mask">masking with *****</option>
-          <option value="redact">removing them</option>
-        </select>
-        <button id="select-all" type="button" class="link">Select all</button>
-        <button id="select-none" type="button" class="link">Select none</button>
+          <section class="side-section" aria-labelledby="check-heading">
+            <h3 id="check-heading">Check</h3>
+            <p id="check-progress" class="hint"></p>
+            <div id="unsure-row" class="toolbar" hidden>
+              <span id="unsure-label"></span>
+              <span class="choice" role="group" aria-label="Mask or keep every unsure find">
+                <button id="unsure-mask" type="button" class="mask">Mask all</button>
+                <button id="unsure-keep" type="button" class="keep">Keep all</button>
+              </span>
+            </div>
+            <div id="check-row" class="check-buttons">
+              <span class="hint">One at a time:</span>
+              <button id="check-unsure" type="button">Unsure words</button>
+              <button id="check-unchecked" type="button">Not checked</button>
+              <button id="check-spot" type="button" title="Up to 20 random places from the whole text, to see quickly whether detection works for it">Spot check</button>
+            </div>
+          </section>
+
+          <section class="list-box" aria-labelledby="always-title">
+            <h3 id="always-title">Always mask</h3>
+            <p class="hint">Masked wherever they appear, even where detection missed them.</p>
+            <div class="add-row">
+              <label for="always-input" class="visually-hidden">Word or phrase to always mask</label>
+              <input id="always-input" type="text" autocomplete="off" spellcheck="false" placeholder="e.g. Project Falcon">
+              <button id="always-add" type="button">Add</button>
+            </div>
+            <p id="always-status" class="status" role="status" aria-live="polite"></p>
+            <ul id="always-chips" class="chips"></ul>
+            <p id="always-empty" class="hint empty">Nothing yet.</p>
+          </section>
+          <section class="list-box" aria-labelledby="ignore-title">
+            <h3 id="ignore-title">Never mask</h3>
+            <p class="hint">Found words on this list stay, e.g. your company or product names.</p>
+            <div class="add-row">
+              <label for="ignore-input" class="visually-hidden">Word or phrase never to mask</label>
+              <input id="ignore-input" type="text" autocomplete="off" spellcheck="false" placeholder="e.g. Affinidi">
+              <button id="ignore-add" type="button">Add</button>
+            </div>
+            <p id="ignore-status" class="status" role="status" aria-live="polite"></p>
+            <ul id="ignore-chips" class="chips"></ul>
+            <p id="ignore-empty" class="hint empty">Nothing yet.</p>
+          </section>
+          <p class="hint">Case does not matter. A * at the start or end stands for the rest of the word: <code>*@example.com</code> covers every address there, <code>Project *</code> the word after "Project". Both lists stay while this page is open, for every text you check.</p>
+
+          <section class="side-section" aria-labelledby="style-heading">
+            <h3 id="style-heading"><label for="default-operator">Mask by</label></h3>
+            <select id="default-operator">
+              <option value="replace">replacing with the type, e.g. &lt;PERSON&gt;</option>
+              <option value="mask">masking with *****</option>
+              <option value="redact">removing it</option>
+            </select>
+          </section>
+        </aside>
+
+        <section id="word-tools" class="pane words-pane" aria-labelledby="words-title">
+          <div class="pane-head">
+            <h3 id="words-title">Words found</h3>
+            <span class="spacer"></span>
+            <button id="undo" type="button" title="Undo (Ctrl+Z / ⌘Z)" disabled>Undo</button>
+            <button id="redo" type="button" title="Redo (Ctrl+Shift+Z / ⇧⌘Z)" disabled>Redo</button>
+          </div>
+          <section id="check-panel" class="check-panel" tabindex="-1" aria-labelledby="check-title" hidden>
+            <div class="check-head">
+              <h3 id="check-title"></h3>
+              <span id="check-count" class="status" aria-live="polite"></span>
+              <progress id="check-bar" value="0" max="1"></progress>
+              <button id="check-close" type="button" class="link">Close <kbd>Esc</kbd></button>
+            </div>
+            <div id="check-body"></div>
+            <div class="check-actions">
+              <button id="check-mask" type="button" class="mask">Mask <kbd>M</kbd></button>
+              <button id="check-keep" type="button" class="keep">Keep <kbd>K</kbd></button>
+              <button id="check-skip" type="button">Skip <kbd>Space</kbd></button>
+              <button id="check-back" type="button">Back <kbd>⌫</kbd></button>
+            </div>
+          </section>
+          <div class="toolbar">
+            <label for="word-search" class="visually-hidden">Search words</label>
+            <input id="word-search" type="search" placeholder="Search words" autocomplete="off" spellcheck="false">
+            <label for="word-filter" class="visually-hidden">Show</label>
+            <select id="word-filter">
+              <option value="all">All words</option>
+              <option value="unsure">Unsure</option>
+              <option value="unchecked">Not checked</option>
+              <option value="masked">Masked</option>
+              <option value="kept">Kept</option>
+              <option value="partly">Partly masked</option>
+            </select>
+          </div>
+          <div class="toolbar bulk">
+            <label class="pick-all"><input id="pick-all" type="checkbox"> <span id="pick-all-label">Select all</span></label>
+            <span id="bulk-count" class="status"></span>
+            <span class="spacer"></span>
+            <button id="mask-picked" type="button" disabled>Mask</button>
+            <button id="keep-picked" type="button" disabled>Keep</button>
+            <button id="ignore-picked" type="button" disabled title="Keep them, and add them to the Never mask list">Never mask</button>
+            <button id="clear-picked" type="button" class="link" disabled>Clear</button>
+          </div>
+          <ul id="words" class="words"></ul>
+          <button id="more-words" type="button" class="link" hidden></button>
+        </section>
+
+        <section class="pane preview-pane" aria-labelledby="preview-title">
+          <div class="pane-head">
+            <h3 id="preview-title">Preview</h3>
+            <span class="spacer"></span>
+            <span class="find-nav" role="group" aria-label="Move between finds">
+              <button id="find-previous" type="button" title="Previous find (P)">◀</button>
+              <button id="find-next" type="button" title="Next find (N)">▶</button>
+              <button id="find-unsure" type="button" title="Next unsure find (U)">Next unsure</button>
+            </span>
+          </div>
+          <details class="help">
+            <summary>Highlights and keys</summary>
+            <p>Highlighted text will be masked; outlined text was found but will stay; underlined text is masked by your Always mask list or by you. Click a highlight, or put the cursor on it and press Enter, to change that one place. Select text to mask what detection missed. N and P go to the next and previous find, U to the next unsure one, and Ctrl+F (⌘F) searches. The strip on the right shows where the finds are in the whole text.</p>
+          </details>
+          <div class="toolbar selection-bar">
+            <span id="selection-text" class="selection-text hint">Select text in the preview to mask it.</span>
+            <button id="sel-mask" type="button" disabled title="Mask the selected text in this place">Mask this <kbd>M</kbd></button>
+            <button id="sel-mask-all" type="button" disabled title="Add the selected text to the Always mask list">Everywhere <kbd>⇧M</kbd></button>
+            <button id="sel-keep" type="button" disabled title="Keep every find in the selected text">Keep finds <kbd>K</kbd></button>
+            <span id="selection-status" class="status" role="status" aria-live="polite"></span>
+          </div>
+          <div id="preview" class="preview"></div>
+          <div id="manual-row" class="manual-row" hidden>
+            <span>Marked by hand:</span>
+            <ul id="manual-chips" class="chips"></ul>
+          </div>
+        </section>
       </div>
-
-      <div id="groups" class="groups"></div>
-
-      <h3>Preview</h3>
-      <p class="hint">Highlighted text will be masked. Click a highlight to include or exclude it.</p>
-      <div id="preview" class="preview" tabindex="0"></div>
-
-      <label for="custom-terms">Also mask these exact terms (one per line, case-insensitive)</label>
-      <textarea id="custom-terms" rows="3" spellcheck="false" placeholder="Project Falcon&#10;client reference 4471"></textarea>
-
-      <div class="actions">
-        <button id="mask" type="button" class="primary">Mask selected</button>
+      <footer class="wizard-footer">
+        <button type="button" class="step-back" data-step="input">← Text or document</button>
+        <span class="spacer"></span>
         <span id="mask-status" class="status" role="status" aria-live="polite"></span>
-      </div>
+        <button id="mask-check" type="button" class="link" hidden>Check them now</button>
+        <button id="mask" type="button" class="primary">Mask the text →</button>
+      </footer>
     </section>
 
-    <section id="result" class="card" aria-labelledby="step-result" hidden>
-      <h2 id="step-result"><span class="step">4</span> Masked result</h2>
-      <p id="result-summary" class="summary"></p>
-      <textarea id="output" rows="12" readonly spellcheck="false"></textarea>
-      <div class="actions">
-        <button id="copy" type="button">Copy</button>
-        <button id="download" type="button">Download .txt</button>
-        <span id="copy-status" class="status" role="status" aria-live="polite"></span>
+    <!-- Step 3: the masked result -->
+    <section id="result" class="wizard-step" data-step="result" aria-labelledby="result-title" hidden>
+      <div class="step-body result-body">
+        <div class="pane-head">
+          <h2 id="result-title" class="step-title" tabindex="-1">Masked result</h2>
+          <p id="result-summary" class="summary"></p>
+          <span class="spacer"></span>
+          <label class="pick-all"><input id="show-replacements" type="checkbox" checked> Highlight what was masked</label>
+        </div>
+        <p id="result-stale" class="notice" hidden>You have changed what to mask since this result was made. <button id="remask" type="button" class="link">Mask the text again</button></p>
+        <div id="output" class="preview"></div>
+        <p id="result-detail" class="hint result-detail" aria-live="polite"></p>
+        <p class="hint">Masking is pseudonymisation, not anonymisation: check the result before you share it.</p>
       </div>
-      <p class="hint">Masking is pseudonymisation, not anonymisation: check the result before you share it.</p>
+      <footer class="wizard-footer">
+        <button type="button" class="step-back" data-step="review">← Choose what to mask</button>
+        <span class="spacer"></span>
+        <span id="copy-status" class="status" role="status" aria-live="polite"></span>
+        <button id="download" type="button">Download .txt</button>
+        <button id="copy" type="button" class="primary">Copy</button>
+        <button id="start-over" type="button">Check another text</button>
+      </footer>
     </section>
   </main>
 </body>

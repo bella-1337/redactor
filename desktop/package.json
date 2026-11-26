@@ -6,8 +6,9 @@
   "scripts": {
     "runtime": "uv run --no-project --python 3.12 scripts/build_runtime.py",
     "icons": "tauri icon src-tauri/icons/icon-source.png",
-    "dev": "tauri dev",
-    "build": "tauri build"
+    "dev": "npm run sync-app && tauri dev",
+    "build": "tauri build",
+    "sync-app": "uv run --no-project --python 3.12 scripts/build_runtime.py --app-only"
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.12.6"

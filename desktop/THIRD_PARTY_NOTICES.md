@@ -14,6 +14,7 @@ them, under `resources/` in the app's folder.
 | spaCy `fr_core_news_lg` 3.8.0 | 3.8.0 | **LGPL-LR** (Lesser General Public License for Linguistic Resources) | `resources/python/…/site-packages/` |
 | Xberg CLI, with Tesseract and its image libraries built in | 1.3.10 | see `resources/xberg/LICENSE` and `resources/xberg/THIRD_PARTY_LICENSES.md` | `resources/xberg/` |
 | Tesseract `tessdata_fast` English, German, French | commit `8741641` | Apache-2.0 | `resources/tessdata/` |
+| CodeMirror 6 (`@codemirror/state`, `view`, `search`) with `style-mod`, `crelt`, `w3c-keyname`, `@marijn/find-cluster-break` | see `app/codemirror/package-lock.json` | MIT (notices at the top of the file) | `resources/python/…/site-packages/pii_review/static/codemirror.js` |
 | Tauri and its Rust dependencies | 2.x | MIT or Apache-2.0 | the app binary |
 | Microsoft Edge WebView2 runtime installer (Windows installers only) | | Microsoft software licence | run by the installer when WebView2 is missing |
 

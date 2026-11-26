@@ -1,0 +1,31 @@
+/* The preview's CodeMirror view, inside the shadow root of #preview. The
+   colour variables come from app.css through the host element. */
+
+/* The editor and, on its right, the overview strip of where the finds are.
+   The page sets --view-height (and --view-max) on the host to fill a pane. */
+.preview-body { display: flex; align-items: stretch; height: var(--view-height, auto); }
+.preview-editor { flex: 1; min-width: 0; }
+.overview { flex: none; width: 12px; border-left: 1px solid var(--border); cursor: pointer; touch-action: none; }
+
+/* CodeMirror draws only the lines in view, so its height is limited; a short
+   text makes it shorter. */
+.cm-editor { height: var(--view-height, auto); max-height: var(--view-max, min(60vh, 560px)); min-height: 5em; color: var(--text); background: var(--bg); }
+.cm-editor.cm-focused { outline: 2px solid var(--accent); outline-offset: -2px; }
+.cm-scroller { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.9rem; line-height: 1.6; }
+.cm-content { padding: 10px 4px; }
+.cm-cursor { border-left-color: var(--text); }
+.cm-panels { background: var(--card); color: var(--text); border-color: var(--border); }
+.cm-panels input, .cm-panels button { font: inherit; font-size: 0.85rem; color: inherit; }
+
+.hit { cursor: pointer; border-radius: 3px; padding: 1px 0; text-decoration: line-through; text-decoration-color: transparent; }
+.hit.selected { background: var(--hit-selected); text-decoration-color: currentColor; }
+.hit:not(.selected) { outline: 1px dashed var(--muted); }
+/* A find inside another one (e.g. a name inside an address) is underlined. */
+.hit .hit.selected { box-shadow: inset 0 -2px 0 currentColor; }
+/* Masked by the Always mask list: highlighted and underlined in the accent colour. */
+.added { background: var(--hit-selected); box-shadow: inset 0 -2px 0 var(--accent); border-radius: 3px; }
+/* Marked by hand: the same, and the pointer says it can be clicked away. */
+.manual { background: var(--hit-selected); box-shadow: inset 0 -2px 0 var(--accent); border-radius: 3px; cursor: pointer; }/* In the masked result: what replaced something, and where something was removed. */
+.replaced { background: var(--row-selected); outline: 1px solid var(--accent); border-radius: 3px; cursor: pointer; }
+.replaced.removed { color: var(--accent); font-size: 0.8em; padding: 0 2px; margin: 0 1px; }
+.hit.flash { outline: 2px solid var(--accent); outline-offset: 1px; }

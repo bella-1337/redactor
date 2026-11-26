@@ -4,19 +4,45 @@ A self-service page where people check the personal data in a text, document,
 scan, or image before they share it, choose what to mask, and copy the masked
 result.
 
+It is a wizard in three steps (text or document, choose what to mask, masked
+result), each filling the window and made for a monitor: on a screen 1280
+pixels wide or more, the review shows the summary and lists, the words found,
+and the preview side by side, each scrolling on its own. Narrower windows get
+two panes, then one column.
+
 1. Sign in with your LiteLLM virtual key.
 2. Paste text, or upload a document of up to 200 MiB (PDF, Word, Excel,
    PowerPoint, OpenDocument, RTF, HTML, email, or plain text) or an image (PNG,
    JPEG, TIFF, WebP, BMP, GIF). Images, scanned PDF pages, and images in Office
    documents are read with OCR.
-3. See everything that was found, grouped by type, with its score, context, and
-   a highlighted preview: names, organisations, addresses, email addresses,
-   phone numbers, IBANs, card numbers, UK NHS and National Insurance numbers,
-   and more, in English, German, and French.
-4. Choose what to mask: whole types or single items, how each type is masked
-   (replaced with its type, masked with `*`, or removed), and terms the
-   detection missed.
-5. Copy or download the masked text.
+3. See everything that was found, listed once per word or phrase with how often
+   it appears, and a highlighted preview: names, organisations, addresses,
+   email addresses, phone numbers, IBANs, card numbers, UK NHS and National
+   Insurance numbers, and more, in English, German, and French.
+4. Choose what to mask. Everything found is masked unless you keep it: Mask or
+   Keep a word everywhere it appears, open it to change single places, or
+   search, filter (unsure, masked, kept), select many words, and decide for
+   all of them at once; mask or keep every unsure find with one click. To
+   check words one at a time, step through the unsure words, the words not
+   yet checked, or a spot check of 20 random places, with M (mask), K
+   (keep), Space (skip), and Backspace (back); the preview follows along. The
+   page counts which words have been checked and says so before masking if
+   unsure words have not been. In the preview of the whole text, select text
+   to mask it in that place (M), everywhere (Shift+M, added to the Always mask
+   list), or to keep the finds in it (K); a selection that cuts a word takes
+   in the whole word, and one that covers part of a find widens it. N and P go
+   to the next and previous find, U to the next unsure one, and a strip
+   beside the preview shows where the finds are and scrolls there. Undo
+   and redo work with Ctrl+Z and Ctrl+Shift+Z (⌘Z, ⇧⌘Z). Two lists save
+   clicks: **Always mask** masks terms wherever they appear, even where
+   detection missed them, and **Never mask** keeps found words such as your
+   company's name. A `*` at the start or end of a term stands for the rest of
+   the word (`*@example.com`, `Project *`). The lists last while the page is
+   open, for every text checked in it. Choose how everything is masked
+   (replaced with its type, masked with `*`, or removed).
+5. Check the masked text, with every replacement highlighted: a click on
+   one says what it replaced and leads back to that place in the preview
+   (N and P go from one to the next). Then copy or download it.
 
 Nothing is stored, nothing is sent to a cloud model, and the services log no
 content, file names, or keys.
@@ -25,7 +51,7 @@ content, file names, or keys.
 
 | Service | Image | Purpose |
 | --- | --- | --- |
-| `pii-review` | local build (`images/pii-review`, package in `app/pii_review`), Python standard library only | The page and its API. Checks keys, sends documents to Xberg, text to Presidio and the local model, and masks the selection. |
+| `pii-review` | local build (`images/pii-review`, package in `app/pii_review`), Python standard library only; the page's text preview is CodeMirror 6, bundled into `app/pii_review/static/codemirror.js` from `app/codemirror` | The page and its API. Checks keys, sends documents to Xberg, text to Presidio and the local model, and masks the selection. |
 | `presidio-analyzer` | local build (`images/presidio-analyzer`) on `mcr.microsoft.com/presidio-analyzer:2.2.362` | Detection in English, German, and French, with organisation names, UK formats, and German and French street addresses. |
 | `presidio-anonymizer` | `mcr.microsoft.com/presidio-anonymizer:2.2.362` | Masks the selected items. |
 | `xberg` | local build (`images/xberg`) on `ghcr.io/xberg-io/xberg:1.3.10-core` | Reads documents (`xberg serve`, upload API, 250 MiB limit), with OCR by the Tesseract engine in the image. |
@@ -69,6 +95,39 @@ reverse proxy in front of it and keep `PII_REVIEW_BIND=127.0.0.1`.
 The first build downloads the German and French spaCy pipelines (about
 1.1 GB). See `.env.example` for every setting.
 
+### NLP engine
+
+Presidio's NLP engine is a compose profile, set with `COMPOSE_PROFILES` in
+`.env` (exactly one; without a profile no analyzer starts, so add
+`COMPOSE_PROFILES=spacy` to an `.env` from before this setting):
+
+| Profile | Analyzer | Image |
+| --- | --- | --- |
+| `spacy` (default) | `presidio-analyzer`: spaCy's large English, German, and French pipelines | 2.2 GB |
+| `transformers` | `presidio-analyzer-transformers`: Presidio's Transformers engine. Small spaCy pipelines split the text and a multilingual Hugging Face NER model (`Davlan/xlm-roberta-base-ner-hrl` by default) finds names, organisations, and places; often better at names, and slower. PyTorch runs on the CPU. | larger: PyTorch (CPU) and the model |
+
+```sh
+COMPOSE_PROFILES=transformers docker compose up -d --build
+```
+
+Both answer as `presidio-analyzer` on the internal network, so the page needs
+no other setting. The pattern recognizers (email, phone, IBAN, UK numbers,
+addresses) are the same with either engine.
+
+The transformers image is built by the same Dockerfile with
+`NLP_ENGINE=transformers`: PyTorch and the other packages are pinned by hash
+in [`images/presidio-analyzer/transformers-requirements.txt`](images/presidio-analyzer/transformers-requirements.txt),
+the small spaCy pipelines in `transformers-spacy-models.txt`, and the build
+downloads the model from Hugging Face at `PRESIDIO_HF_MODEL_REVISION` (default
+`main`). It prints the commit it took (`Hugging Face model … at commit …`,
+also in `/app/models/ner/REVISION`): set `PRESIDIO_HF_MODEL_REVISION` to that
+commit to build the same model every time. The analyzer itself has no internet
+and loads only the model built in (`HF_HUB_OFFLINE=1`). It loads the model
+once per language, so it gets `PRESIDIO_TRANSFORMERS_MEMORY_LIMIT` (6 GB by
+default). Check the model's licence before you distribute the image. Presidio's
+third engine, Stanza, is not offered: Presidio 2.2.362 downloads Stanza's
+`resources.json` at every start, which the analyzer without internet cannot do.
+
 ### NVIDIA GPU (optional)
 
 On an x86_64 host with the NVIDIA driver and the
@@ -76,8 +135,10 @@ On an x86_64 host with the NVIDIA driver and the
 the analyzer can run its spaCy pipelines on a GPU:
 
 ```sh
-docker compose -f compose.yml -f compose.gpu.yml up -d --build
+COMPOSE_PROFILES=spacy docker compose -f compose.yml -f compose.gpu.yml up -d --build
 ```
+
+(spaCy engine only.)
 
 [`compose.gpu.yml`](compose.gpu.yml) builds the analyzer with CuPy and the
 CUDA 12 libraries ([`images/presidio-analyzer/gpu-requirements.txt`](images/presidio-analyzer/gpu-requirements.txt),

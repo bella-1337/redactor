@@ -53,8 +53,14 @@ services:
     extra_hosts:
       - host.docker.internal:host-gateway
     depends_on:
+      # One analyzer runs, the one of the profile in COMPOSE_PROFILES; both
+      # answer as presidio-analyzer on the backend network.
       presidio-analyzer:
         condition: service_healthy
+        required: false
+      presidio-analyzer-transformers:
+        condition: service_healthy
+        required: false
       presidio-anonymizer:
         condition: service_healthy
       xberg:
@@ -82,11 +88,18 @@ services:
       retries: 6
       start_period: 10s
 
+  # Presidio's NLP engine is chosen with a profile, COMPOSE_PROFILES in .env:
+  #   spacy         spaCy pipelines (default)
+  #   transformers  a multilingual Hugging Face NER model (PyTorch, CPU)
+  # Choose one: both analyzers answer as presidio-analyzer.
   presidio-analyzer:
+    profiles: [spacy]
     logging: *logging
     image: pii-review-presidio-analyzer:2.2.362-2
     build:
       context: ./images/presidio-analyzer
+      args:
+        NLP_ENGINE: spacy
       labels:
         org.opencontainers.image.title: pii-review-presidio-analyzer
         org.opencontainers.image.description: Presidio analyzer with English, German, and French spaCy pipelines
@@ -119,6 +132,51 @@ services:
       timeout: 5s
       retries: 18
       start_period: 60s
+
+  presidio-analyzer-transformers:
+    profiles: [transformers]
+    logging: *logging
+    image: pii-review-presidio-analyzer:2.2.362-2-transformers
+    build:
+      context: ./images/presidio-analyzer
+      args:
+        NLP_ENGINE: transformers
+        # The NER model and its commit (images/presidio-analyzer/Dockerfile).
+        HF_MODEL: ${PRESIDIO_HF_MODEL:-Davlan/xlm-roberta-base-ner-hrl}
+        HF_MODEL_REVISION: ${PRESIDIO_HF_MODEL_REVISION:-main}
+      labels:
+        org.opencontainers.image.title: pii-review-presidio-analyzer
+        org.opencontainers.image.description: Presidio analyzer with the Transformers NLP engine and a multilingual Hugging Face NER model
+        org.opencontainers.image.version: 2.2.362-2-transformers
+        org.opencontainers.image.base.name: mcr.microsoft.com/presidio-analyzer:2.2.362
+    environment:
+      WORKERS: ${PRESIDIO_ANALYZER_WORKERS:-2}
+      GUNICORN_CMD_ARGS: --no-control-socket --preload
+      # One PyTorch thread per worker: the workers already use the CPUs.
+      OMP_NUM_THREADS: "1"
+    networks:
+      backend:
+        aliases: [presidio-analyzer]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "${PRESIDIO_ANALYZER_CPU_LIMIT:-2}"
+          # The model is loaded once per language (about 1.1 GiB each for the
+          # default), plus PyTorch.
+          memory: ${PRESIDIO_TRANSFORMERS_MEMORY_LIMIT:-6g}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/health', timeout=5)"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
 
   presidio-anonymizer:
     logging: *logging

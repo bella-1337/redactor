@@ -150,12 +150,7 @@ def stage_python(target: str, out: Path, cache: Path) -> Path:
         "--require-hashes", "--only-binary", ":all:", "--no-deps",
         "-r", RUNTIME / "requirements.txt",
     )
-    # The page itself: standard library only.
-    shutil.copytree(
-        REPO / "app" / "pii_review",
-        site_packages / "pii_review",
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
-    )
+    stage_app(site_packages)
     # Console scripts point at the build machine's paths; the app never uses
     # them, nor pip. It runs one interpreter: drop the other names for it.
     shutil.rmtree(site_packages / "bin", ignore_errors=True)
@@ -173,6 +168,23 @@ def stage_python(target: str, out: Path, cache: Path) -> Path:
     run(interpreter, "-I", "-m", "compileall", "-q", "-j", "0", stdlib, stdout=subprocess.DEVNULL)
     run(interpreter, "-I", "-c", "import presidio_analyzer, presidio_anonymizer, spacy, pii_review.desktop")
     return interpreter
+
+
+def stage_app(site_packages: Path) -> None:
+    """The page and the engine, app/pii_review: standard library only."""
+    shutil.rmtree(site_packages / "pii_review", ignore_errors=True)
+    shutil.copytree(
+        REPO / "app" / "pii_review",
+        site_packages / "pii_review",
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+    )
+
+
+def site_packages_of(target: str, out: Path) -> Path:
+    if target.endswith("windows-msvc"):
+        return out / "python" / "Lib" / "site-packages"
+    short = ".".join(PINS["python"].split(".")[:2])
+    return out / "python" / "lib" / f"python{short}" / "site-packages"
 
 
 def _replace_symlinks(root: Path) -> None:
@@ -243,9 +255,24 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--out", type=Path, default=DESKTOP / "build" / "resources")
     parser.add_argument("--cache", type=Path, default=DESKTOP / "build" / "cache")
+    parser.add_argument(
+        "--app-only",
+        action="store_true",
+        help="refresh only what comes from this repository (app/pii_review and the configuration) "
+        "in a runtime staged before, for `npm run dev`; downloads nothing",
+    )
     args = parser.parse_args()
 
     target = host_target()
+    if args.app_only:
+        site_packages = site_packages_of(target, args.out)
+        if not site_packages.is_dir():
+            raise SystemExit(f"no staged runtime in {args.out}: run `npm run runtime` first")
+        stage_app(site_packages)
+        shutil.rmtree(args.out / "config", ignore_errors=True)
+        stage_config(args.out)
+        print(f"refreshed app/pii_review and the configuration in {args.out}", flush=True)
+        return 0
     print(f"staging the desktop runtime for {target}", flush=True)
     out: Path = args.out
     shutil.rmtree(out, ignore_errors=True)

@@ -57,7 +57,7 @@ class SettingsFileTests(unittest.TestCase):
 
     def test_reads_known_keys_and_ignores_others(self) -> None:
         path = self.write(
-            "# comment\nPII_REVIEW_LANGUAGE=de\nPII_REVIEW_ANALYZER_URL=http://evil\n"
+            "# comment\nPII_REVIEW_LANGUAGE=de\nPII_REVIEW_ANONYMIZER_URL=http://evil\n"
             "PII_REVIEW_ASSIST_MODEL='qwen3.5:4b'\nnot a setting\n"
         )
         values = desktop.read_settings_file(path)
@@ -80,10 +80,30 @@ class SettingsFileTests(unittest.TestCase):
         self.assertEqual(settings.xberg_url, "http://127.0.0.1:5555")
 
     def test_service_urls_cannot_be_overridden(self) -> None:
-        environ = {"PII_REVIEW_ANALYZER_URL": "http://elsewhere:3000", "PII_REVIEW_AUTH": "gateway"}
+        environ = {
+            "PII_REVIEW_ANONYMIZER_URL": "http://elsewhere:3000",
+            "PII_REVIEW_XBERG_URL": "http://elsewhere:8000",
+            "PII_REVIEW_AUTH": "gateway",
+        }
         settings = desktop.desktop_settings(None, "http://127.0.0.1:5555", environ=environ)
         self.assertEqual(settings.analyzer_url, desktop.ANALYZER_URL)
+        self.assertEqual(settings.anonymizer_url, desktop.ANONYMIZER_URL)
+        self.assertEqual(settings.xberg_url, "http://127.0.0.1:5555")
         self.assertEqual(settings.auth, "local")
+        self.assertEqual(desktop.external_analyzer(settings), "")
+
+    def test_an_analyzer_elsewhere_can_be_set(self) -> None:
+        path = self.write("PII_REVIEW_ANALYZER_URL=http://127.0.0.1:5002/\n")
+        settings = desktop.desktop_settings(path, "http://127.0.0.1:5555", environ={})
+        self.assertEqual(settings.analyzer_url, "http://127.0.0.1:5002")
+        self.assertEqual(desktop.external_analyzer(settings), "http://127.0.0.1:5002")
+        self.assertEqual(settings.anonymizer_url, desktop.ANONYMIZER_URL)
+        # Empty is the built-in analyzer; a URL with credentials is refused.
+        empty = desktop.desktop_settings(self.write("PII_REVIEW_ANALYZER_URL=\n"), "http://127.0.0.1:5555", environ={})
+        self.assertEqual(empty.analyzer_url, desktop.ANALYZER_URL)
+        for bad in ("ftp://host", "http://user:pw@host:5002", "not a url"):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                desktop.desktop_settings(None, "http://127.0.0.1:5555", environ={"PII_REVIEW_ANALYZER_URL": bad})
 
     def test_gateways_switch_to_key_sign_in(self) -> None:
         environ = {"PII_REVIEW_GATEWAYS": "https://litellm.example.test"}
@@ -133,6 +153,51 @@ class LocalTokenValidatorTests(unittest.TestCase):
     def test_short_token_is_refused(self) -> None:
         with self.assertRaises(ValueError):
             LocalTokenValidator("short")
+
+
+class ExternalAnalyzerTests(unittest.TestCase):
+    def test_analysis_goes_out_and_masking_stays_here(self) -> None:
+        calls: list[tuple[str, str]] = []
+
+        def recorder(name: str) -> Any:
+            def transport(method: str, url: str, headers: Any, body: Any, timeout: float) -> review.HttpResponse:
+                calls.append((name, url))
+                return review.HttpResponse(200, {}, b"[]")
+
+            return transport
+
+        transport = desktop.ExternalAnalyzer("http://127.0.0.1:5002", recorder("local"), http=recorder("http"))
+        transport("POST", "http://127.0.0.1:5002/analyze", {}, b"{}", 10)
+        transport("POST", f"{desktop.ANONYMIZER_URL}/anonymize", {}, b"{}", 10)
+        # A look-alike host is not the analyzer.
+        transport("POST", "http://127.0.0.1:50021/analyze", {}, b"{}", 10)
+        self.assertEqual(
+            calls,
+            [
+                ("http", "http://127.0.0.1:5002/analyze"),
+                ("local", f"{desktop.ANONYMIZER_URL}/anonymize"),
+                ("local", "http://127.0.0.1:50021/analyze"),
+            ],
+        )
+
+    def test_an_analyzer_that_does_not_answer_is_reported(self) -> None:
+        with self.assertRaises(desktop.AnalyzerUnreachable):
+            desktop.wait_for_analyzer("http://127.0.0.1:9", seconds=0.5)
+
+    def test_a_running_analyzer_is_found(self) -> None:
+        class Health(server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802
+                self.send_response(200 if self.path == "/health" else 404)
+                self.end_headers()
+
+            def log_message(self, *args: Any) -> None:
+                pass
+
+        httpd = server.ThreadingHTTPServer(("127.0.0.1", 0), Health)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        self.addCleanup(httpd.server_close)
+        self.addCleanup(httpd.shutdown)
+        desktop.wait_for_analyzer(f"http://127.0.0.1:{httpd.server_address[1]}", seconds=2)
 
 
 class InProcessPresidioTests(unittest.TestCase):

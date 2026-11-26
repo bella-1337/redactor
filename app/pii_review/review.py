@@ -43,8 +43,9 @@ MAX_TEXT_BYTES_LIMIT = 250_000_000
 MAX_FILE_BYTES_LIMIT = 250_000_000
 DEFAULT_MAX_FILE_BYTES = 200 * 1024 * 1024
 MAX_SELECTIONS = 1_000_000
-MAX_CUSTOM_TERMS = 50
+MAX_CUSTOM_TERMS = 200
 MAX_CUSTOM_TERM_CHARS = 200
+MAX_WILDCARD_CHARS = 200  # the most characters a * in an extra term covers
 CUSTOM_TERM_ENTITY = "CUSTOM_TERM"
 DEFAULT_OPERATOR_KEY = "DEFAULT"
 
@@ -515,13 +516,30 @@ def parse_analyzer_results(results: Any, text: str) -> list[dict[str, Any]]:
     return detections
 
 
+def parse_custom_term(term: str) -> tuple[bool, str, bool]:
+    """Split a term into (leading *, literal, trailing *).
+
+    A * may start or end a term and stands for the rest of that word: the
+    characters up to the next whitespace, at most MAX_WILDCARD_CHARS of them.
+    "*@example.com" covers every address at example.com, "Project *" the word
+    after "Project".
+    """
+    leading, trailing = term.startswith("*"), term.endswith("*") and len(term) > 1
+    literal = term[1 if leading else 0 : len(term) - 1 if trailing else len(term)]
+    if "*" in literal:
+        raise ReviewError("A * can only start or end an extra term.")
+    if (leading or trailing) and len(literal.strip()) < 2:
+        raise ReviewError("An extra term with * needs at least two other characters.")
+    return leading, literal, trailing
+
+
 def find_custom_terms(text: str, terms: Any) -> list[dict[str, Any]]:
     """Every case-insensitive occurrence of terms the user adds by hand."""
     if terms is None:
         return []
     if not isinstance(terms, list) or len(terms) > MAX_CUSTOM_TERMS:
         raise ReviewError(f"Add at most {MAX_CUSTOM_TERMS} extra terms.")
-    results: list[dict[str, Any]] = []
+    spans: set[tuple[int, int]] = set()
     seen: set[str] = set()
     for term in terms:
         if not isinstance(term, str):
@@ -532,14 +550,25 @@ def find_custom_terms(text: str, terms: Any) -> list[dict[str, Any]]:
         if len(term) > MAX_CUSTOM_TERM_CHARS:
             raise ReviewError(f"Extra terms can be at most {MAX_CUSTOM_TERM_CHARS} characters.")
         seen.add(term.casefold())
-        # re.escape makes the term a literal: no user-controlled pattern.
-        for match in re.finditer(re.escape(term), text, re.IGNORECASE):
-            results.append(
-                {"entity_type": CUSTOM_TERM_ENTITY, "start": match.start(), "end": match.end(), "score": 1.0}
-            )
-            if len(results) > MAX_SELECTIONS:
+        leading, literal, trailing = parse_custom_term(term)
+        # re.escape makes the term a literal: no user-controlled pattern. The
+        # * is applied by hand, with a bounded reach, so matching stays linear.
+        for match in re.finditer(re.escape(literal), text, re.IGNORECASE):
+            start, end = match.start(), match.end()
+            if leading:
+                floor = max(0, start - MAX_WILDCARD_CHARS)
+                while start > floor and not text[start - 1].isspace():
+                    start -= 1
+            if trailing:
+                ceiling = min(len(text), end + MAX_WILDCARD_CHARS)
+                while end < ceiling and not text[end].isspace():
+                    end += 1
+            spans.add((start, end))
+            if len(spans) > MAX_SELECTIONS:
                 raise ReviewError("The extra terms match too often; use more specific terms.")
-    return results
+    return [
+        {"entity_type": CUSTOM_TERM_ENTITY, "start": start, "end": end, "score": 1.0} for start, end in sorted(spans)
+    ]
 
 
 def parse_selections(text: str, selections: Any) -> list[dict[str, Any]]:
@@ -727,7 +756,12 @@ class Presidio:
 
     def _anonymize_segment(
         self, text: str, results: list[dict[str, Any]], anonymizers: dict[str, dict[str, Any]]
-    ) -> tuple[str, dict[str, int]]:
+    ) -> tuple[str, dict[str, int], list[tuple[int, int]] | None]:
+        """Mask one segment: its masked text, counts, and where each result ended up.
+
+        The positions are (start, end) in the masked segment, one per result in
+        order, or None when the anonymizer's items do not give them.
+        """
         payload = json.dumps({"text": text, "anonymizers": anonymizers, "analyzer_results": results}).encode("utf-8")
         response = _post_json(self.transport, f"{self.settings.anonymizer_url}/anonymize", payload, 60, "anonymizer")
         masked = response.get("text") if isinstance(response, dict) else None
@@ -735,11 +769,20 @@ class Presidio:
             raise UpstreamError("anonymizer returned an unexpected shape")
         counts: dict[str, int] = {}
         items = response.get("items")
-        for item in items if isinstance(items, list) else []:
+        items = items if isinstance(items, list) else []
+        positions: list[tuple[int, int]] = []
+        for item in items:
             entity = item.get("entity_type") if isinstance(item, dict) else None
             if isinstance(entity, str) and ENTITY_TYPE_RE.fullmatch(entity):
                 counts[entity] = counts.get(entity, 0) + 1
-        return masked, counts
+            start, end = (item.get("start"), item.get("end")) if isinstance(item, dict) else (None, None)
+            if type(start) is int and type(end) is int and 0 <= start <= end <= len(masked):
+                positions.append((start, end))
+        # The results do not overlap (merge_overlaps), so in order of position
+        # the n-th item is where the n-th result went.
+        if len(positions) != len(items) or len(positions) != len(results):
+            return masked, counts, None
+        return masked, counts, sorted(positions)
 
     def anonymize(
         self, text: str, results: list[dict[str, Any]], anonymizers: dict[str, dict[str, Any]]
@@ -748,9 +791,14 @@ class Presidio:
 
         A whole large text in one request outlasts the anonymizer's 30-second
         worker timeout; segments cut between results give the same output.
+
+        "replacements" lists [start, end, masked_start, masked_end] for each
+        masked span: where it was in the text and where its replacement is in
+        the masked text, for the page's before-and-after view. It is left out
+        when the anonymizer does not say where its replacements went.
         """
         if not results:
-            return {"masked_text": text, "counts": {}}
+            return {"masked_text": text, "counts": {}, "replacements": []}
         segments = anonymize_segments(text, results)
         jobs = [
             (text[start:end], [{**item, "start": item["start"] - start, "end": item["end"] - start} for item in batch])
@@ -760,15 +808,27 @@ class Presidio:
             masked_parts = list(pool.map(lambda job: self._anonymize_segment(job[0], job[1], anonymizers), jobs))
         parts: list[str] = []
         counts: dict[str, int] = {}
+        replacements: list[list[int]] | None = []
         position = 0
-        for (start, end, _batch), (masked, part_counts) in zip(segments, masked_parts):
+        length = 0  # characters of masked text so far
+        for (start, end, batch), (masked, part_counts, positions) in zip(segments, masked_parts):
             parts.append(text[position:start])
+            length += start - position
+            if positions is None or replacements is None:
+                replacements = None
+            else:
+                for item, (masked_start, masked_end) in zip(sorted(batch, key=lambda item: item["start"]), positions):
+                    replacements.append([item["start"], item["end"], length + masked_start, length + masked_end])
             parts.append(masked)
+            length += len(masked)
             position = end
             for entity, count in part_counts.items():
                 counts[entity] = counts.get(entity, 0) + count
         parts.append(text[position:])
-        return {"masked_text": "".join(parts), "counts": counts}
+        answer: dict[str, Any] = {"masked_text": "".join(parts), "counts": counts}
+        if replacements is not None:
+            answer["replacements"] = replacements
+        return answer
 
 
 # ---------------------------------------------------------------------------
