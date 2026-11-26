@@ -42,26 +42,103 @@ body {
   font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
-.top, main { max-width: 960px; margin: 0 auto; padding: 0 16px; }
-.top { padding-top: 32px; }
-h1 { margin: 0 0 4px; font-size: 1.6rem; }
-h2 { margin: 0 0 12px; font-size: 1.15rem; display: flex; align-items: center; gap: 8px; }
-h3 { margin: 20px 0 4px; font-size: 1rem; }
-.lede, .hint { color: var(--muted); margin: 6px 0 12px; }
-.hint { font-size: 0.9rem; }
+/* -- the wizard ---------------------------------------------------------------
+   An app bar with the steps, then one step at a time filling the window. On a
+   monitor the review step shows three panes side by side, each scrolling on
+   its own; narrower windows get two panes, then one column. */
 
-.card {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 20px;
-  margin: 16px 0;
+html, body { height: 100%; }
+body { display: flex; flex-direction: column; }
+
+h1 { margin: 0; font-size: 1.2rem; }
+h2 { margin: 0 0 8px; font-size: 1.15rem; }
+h3 { margin: 0 0 6px; font-size: 1rem; }
+.hint { color: var(--muted); margin: 4px 0 10px; font-size: 0.9rem; }
+
+.appbar {
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 32px;
+  padding: 10px 24px; background: var(--card); border-bottom: 1px solid var(--border);
 }
-
+.brand { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.tagline { color: var(--muted); font-size: 0.85rem; }
+.stepper { margin-left: auto; }
+.stepper ol { list-style: none; margin: 0; padding: 0; display: flex; align-items: center; gap: 4px; }
+.stepper li + li::before { content: ""; display: inline-block; width: 28px; height: 1px; background: var(--border); vertical-align: middle; margin-right: 4px; }
+.step-link { border: none; background: none; display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 18px; color: var(--muted); }
+.step-link:not(:disabled):hover { background: var(--row-selected); color: var(--text); }
+.step-link[aria-current="step"] { background: var(--row-selected); color: var(--text); font-weight: 600; }
+.step-link:disabled { opacity: 0.5; cursor: default; }
 .step {
   display: inline-grid; place-items: center;
   width: 24px; height: 24px; border-radius: 50%;
-  background: var(--accent); color: var(--accent-text); font-size: 0.85rem;
+  background: var(--border); color: var(--text); font-size: 0.85rem;
+}
+.step-link[aria-current="step"] .step, .step-link.done .step { background: var(--accent); color: var(--accent-text); }
+
+.wizard { flex: 1; min-height: 0; display: flex; }
+.wizard-step { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.step-title:focus { outline: none; }
+.step-body { flex: 1; min-height: 0; display: flex; flex-direction: column; width: 100%; padding: 20px 24px 8px; }
+.input-body { max-width: 1280px; margin: 0 auto; }
+.input-body textarea { flex: 1; min-height: 240px; resize: none; }
+.key-row { margin-bottom: 8px; }
+#input-step.dragging .input-body { outline: 2px dashed var(--accent); outline-offset: -8px; border-radius: 12px; }
+.side-section h3 label { margin: 0; }
+.key-row input { max-width: 520px; }
+
+.wizard-footer {
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+  padding: 10px 24px; background: var(--card); border-top: 1px solid var(--border);
+}
+.wizard-footer .spacer { flex: 1; }
+.wizard-footer .primary { min-width: 160px; }
+.footer-hint { margin: 0; }
+
+.review-grid {
+  flex: 1; min-height: 0; display: grid; gap: 12px; padding: 12px 16px;
+  grid-template-columns: minmax(280px, 340px) minmax(360px, 1fr) minmax(440px, 1.35fr);
+}
+.pane {
+  min-width: 0; min-height: 0; display: flex; flex-direction: column;
+  background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px;
+}
+.side-pane { overflow: auto; gap: 12px; }
+.side-pane > * { margin-top: 0; margin-bottom: 0; }
+.side-section { border-top: 1px solid var(--border); padding-top: 10px; }
+.pane-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; }
+.pane-head h2, .pane-head h3, .pane-head .summary { margin: 0; }
+.words-pane, .preview-pane { overflow: hidden; }
+.words-pane .words { flex: 1; min-height: 96px; max-height: none; }
+.preview-pane #preview, .result-body #output { flex: 1; min-height: 120px; --view-height: 100%; --view-max: none; }
+.result-body { padding-bottom: 0; }
+.help { font-size: 0.9rem; color: var(--muted); margin-bottom: 8px; }
+.help summary { cursor: pointer; }
+.help p { margin: 6px 0 0; }
+.check-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.check-buttons .hint { margin: 0 4px 0 0; }
+.check-buttons button { padding: 4px 10px; font-size: 0.9rem; }
+
+/* The app bar stays one line: the tagline goes first. */
+@media (max-width: 1399px) {
+  .tagline { display: none; }
+}
+
+/* Two panes: the side pane, then words above the preview. */
+@media (max-width: 1279px) {
+  .review-grid { grid-template-columns: minmax(260px, 320px) 1fr; grid-template-rows: minmax(0, 1.3fr) minmax(0, 1fr); }
+  .side-pane { grid-row: 1 / span 2; }
+}
+
+/* One column: the page scrolls as a whole. */
+@media (max-width: 860px), (max-height: 600px) {
+  html, body { height: auto; }
+  .wizard, .wizard-step, .step-body, .review-grid { display: block; }
+  .review-grid > .pane { margin-bottom: 12px; }
+  .words-pane .words { max-height: 60vh; }
+  .preview-pane #preview, .result-body #output { --view-height: 60vh; }
+  .input-body textarea { height: 40vh; }
+  .wizard-footer { position: sticky; bottom: 0; }
+  .stepper { margin-left: 0; }
 }
 
 label { display: block; font-weight: 600; margin: 8px 0 4px; }
@@ -129,7 +206,7 @@ input[type="search"] {
 .words {
   list-style: none; margin: 0; padding: 0;
   border: 1px solid var(--border); border-radius: 8px;
-  max-height: 480px; overflow: auto;
+  overflow: auto;
 }
 .words .empty { padding: 12px; color: var(--muted); }
 .word-row + .word-row { border-top: 1px solid var(--border); }
@@ -147,8 +224,6 @@ input[type="search"] {
 }
 .badge.ignored { border-color: var(--accent); }
 
-.lists { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; margin: 8px 0 16px; }
-.lists .lists-hint { grid-column: 1 / -1; margin: 0; }
 .list-box { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; min-width: 0; }
 .list-box h3 { margin: 0; }
 .list-box .hint { margin: 2px 0 8px; }
@@ -250,10 +325,10 @@ mark { background: var(--hit); color: inherit; border-radius: 3px; padding: 0 2p
 /* The CodeMirror view inside is styled by preview.css (it is in a shadow root). */
 
 @media (max-width: 600px) {
-  .card { padding: 14px; }
   .word-head { flex-wrap: wrap; }
-  .lists { grid-template-columns: 1fr; }
   .places { padding-left: 12px; }
+  .appbar, .wizard-footer, .step-body { padding-left: 12px; padding-right: 12px; }
+  .tagline { display: none; }
 }
 
 .more { color: var(--muted); font-style: italic; }

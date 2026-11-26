@@ -38,6 +38,7 @@ const state = {
   lists: { always: [], ignore: [] },
   always: { spans: [], counts: new Map(), longest: 0 }, // where "always" terms match
   manual: [], // {start, end}: places the user marked in the preview, sorted, for this text
+  analysed: false, // a text has been analysed, so the review step can be opened
   // What a step changed: the finds it set, the list terms, the words it
   // marked as checked (groups get `reviewed` once a decision touches them).
   undo: [], // {ids: Int32Array, value, lists: [{name, term, added}], reviewed: Int32Array, manual: [{start, end, added}]}
@@ -160,17 +161,18 @@ async function analyze() {
   const button = $("analyze");
   button.disabled = true;
   setStatus("analyze-status", state.file ? "Reading the document and analysing…" : "Analysing…");
-  $("result").hidden = true;
   try {
     const result = state.file
       ? await api("/api/analyze-document", null, state.file)
       : await api("/api/analyze", { text: $("input-text").value });
+    // The review step is shown first, so the preview is laid out while it fills.
+    maskedResult.text = "";
+    state.analysed = true;
+    goToStep("review");
     loadResult(result);
     // OCR can misread or split names and numbers so that they are not detected.
     $("ocr-note").hidden = !result.ocr;
     setStatus("analyze-status", "");
-    $("review").hidden = false;
-    $("review").scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (error) {
     setStatus("analyze-status", error.message, true);
   } finally {
@@ -326,6 +328,7 @@ function afterChange(ids, listsChanged = false, reviewed = [], manualChanged = f
   const groups = new Set(reviewed);
   for (const id of ids) groups.add(state.groupOf[id]);
   state.maskConfirmed = false;
+  markResultStale();
   renderCheck();
   if (manualChanged) renderManual();
   scheduleOverview(true);
@@ -825,7 +828,7 @@ function renderCheckRow() {
   $("check-unchecked").disabled = checked === total;
   $("check-spot").textContent = `Spot check (${formatCount(Math.min(SPOT_CHECK_PLACES, state.detections.length))})`;
   $("check-spot").disabled = !state.detections.length;
-  $("mask").textContent = state.maskConfirmed ? "Mask anyway" : "Mask the text";
+  $("mask").textContent = state.maskConfirmed ? "Mask anyway →" : "Mask the text →";
   $("mask-check").hidden = !state.maskConfirmed;
   if (!state.maskConfirmed && $("mask-status").classList.contains("error") && $("mask-status").dataset.unchecked) {
     setStatus("mask-status", "");
@@ -1321,9 +1324,17 @@ function renderManual() {
 }
 
 function showRange(position) {
-  previewView.dispatch({ selection: { anchor: position }, effects: EditorView.scrollIntoView(position, { y: "center" }) });
-  $("preview").scrollIntoView({ behavior: "smooth", block: "nearest" });
-  previewView.focus();
+  const show = () => {
+    previewView.dispatch({ selection: { anchor: position }, effects: EditorView.scrollIntoView(position, { y: "center" }) });
+    $("preview").scrollIntoView({ behavior: "smooth", block: "nearest" });
+    previewView.focus();
+  };
+  if (currentStep === "review") show();
+  else {
+    // From the result: go back to the review, and scroll once the preview is laid out again.
+    goToStep("review", false);
+    requestAnimationFrame(show);
+  }
 }
 
 let flashTimer = 0;
@@ -1425,9 +1436,8 @@ async function mask() {
       : "Nothing was selected, so the text is unchanged.";
     setStatus("mask-status", "");
     setStatus("copy-status", "");
-    $("result").hidden = false;
+    goToStep("result");
     showResult(result);
-    $("result").scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (error) {
     setStatus("mask-status", error.message, true);
   } finally {
@@ -1440,7 +1450,7 @@ async function mask() {
 // The masked text in a read-only view. Each replacement can be highlighted;
 // a click on one says what it replaced and leads back to it in the preview.
 
-const maskedResult = { text: "", replacements: null }; // replacements: [start, end, maskedStart, maskedEnd], in order
+const maskedResult = { text: "", replacements: null, stale: false }; // replacements: [start, end, maskedStart, maskedEnd], in order
 let resultView = null;
 let showReplacements = true;
 
@@ -1559,7 +1569,10 @@ function createResultView(host) {
 }
 
 function showResult(result) {
+  maskedResult.stale = false;
+  $("result-stale").hidden = true;
   maskedResult.text = result.masked_text;
+  renderStepper();
   maskedResult.replacements = Array.isArray(result.replacements) ? result.replacements : null;
   if (!resultView) resultView = createResultView($("output"));
   resultView.dispatch({ changes: { from: 0, to: resultView.state.doc.length, insert: maskedResult.text }, selection: { anchor: 0 }, scrollIntoView: true });
@@ -1592,6 +1605,55 @@ function downloadResult() {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+// -- the wizard -------------------------------------------------------------------
+//
+// One step at a time: the text, the review, the result. A step can be opened
+// from the stepper once it has something to show.
+
+const STEPS = ["input", "review", "result"];
+let currentStep = "input";
+
+function goToStep(name, focus = true) {
+  currentStep = name;
+  for (const section of document.querySelectorAll(".wizard-step")) section.hidden = section.dataset.step !== name;
+  renderStepper();
+  if (name === "result") $("result-stale").hidden = !maskedResult.stale;
+  window.scrollTo(0, 0);
+  const title = document.querySelector(`.wizard-step[data-step="${name}"] .step-title`);
+  if (focus && title) title.focus({ preventScroll: true });
+}
+
+function renderStepper() {
+  const reached = { input: true, review: Boolean(state.analysed), result: Boolean(maskedResult.text) };
+  for (const link of document.querySelectorAll(".step-link")) {
+    const step = link.dataset.step;
+    link.disabled = !reached[step];
+    link.classList.toggle("done", STEPS.indexOf(step) < STEPS.indexOf(currentStep));
+    if (step === currentStep) link.setAttribute("aria-current", "step");
+    else link.removeAttribute("aria-current");
+  }
+}
+
+// A decision after masking makes the result out of date: the result step says so.
+function markResultStale() {
+  if (maskedResult.text) maskedResult.stale = true;
+}
+
+function startOver() {
+  goToStep("input", false);
+  $("input-text").focus();
+}
+
+// A document dropped anywhere on the first step is taken as the upload.
+function onDrop(event) {
+  event.preventDefault();
+  $("input-step").classList.remove("dragging");
+  const files = event.dataTransfer && event.dataTransfer.files;
+  if (!files || !files.length) return;
+  $("input-file").files = files;
+  onFileChosen();
+}
+
 async function loadConfig() {
   try {
     const response = await fetch("/api/config", { cache: "no-store", credentials: "omit" });
@@ -1599,11 +1661,8 @@ async function loadConfig() {
   } catch {
     state.config = null;
   }
-  if (localAuth()) {
-    // The desktop app signs the window in: no key step, the others move up.
-    $("key-card").hidden = true;
-    for (const step of document.querySelectorAll(".step")) step.textContent = String(Number(step.textContent) - 1);
-  }
+  // The desktop app signs the window in: no key to enter.
+  if (localAuth()) $("key-card").hidden = true;
   describeFileSupport();
 }
 
@@ -1642,6 +1701,24 @@ $("check-unchecked").addEventListener("click", () => startCheck("unchecked"));
 $("check-spot").addEventListener("click", () => startCheck("spot"));
 $("mask-check").addEventListener("click", () => startCheck("unsure"));
 $("check-close").addEventListener("click", closeCheck);
+for (const button of document.querySelectorAll(".step-link, .step-back")) button.addEventListener("click", () => goToStep(button.dataset.step));
+$("start-over").addEventListener("click", startOver);
+$("remask").addEventListener("click", mask);
+$("default-operator").addEventListener("change", markResultStale);
+$("input-text").addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+    event.preventDefault();
+    analyze();
+  }
+});
+$("input-step").addEventListener("dragover", (event) => {
+  event.preventDefault();
+  $("input-step").classList.add("dragging");
+});
+$("input-step").addEventListener("dragleave", (event) => {
+  if (event.target === $("input-step")) $("input-step").classList.remove("dragging");
+});
+$("input-step").addEventListener("drop", onDrop);
 $("show-replacements").addEventListener("change", (event) => {
   showReplacements = event.target.checked;
   if (resultView) resultView.dispatch({ effects: refreshEffect.of(null) });

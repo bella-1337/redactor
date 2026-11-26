@@ -1,14 +1,15 @@
 /* The preview's CodeMirror view, inside the shadow root of #preview. The
    colour variables come from app.css through the host element. */
 
-/* The editor and, on its right, the overview strip of where the finds are. */
-.preview-body { display: flex; align-items: stretch; }
+/* The editor and, on its right, the overview strip of where the finds are.
+   The page sets --view-height (and --view-max) on the host to fill a pane. */
+.preview-body { display: flex; align-items: stretch; height: var(--view-height, auto); }
 .preview-editor { flex: 1; min-width: 0; }
 .overview { flex: none; width: 12px; border-left: 1px solid var(--border); cursor: pointer; touch-action: none; }
 
 /* CodeMirror draws only the lines in view, so its height is limited; a short
    text makes it shorter. */
-.cm-editor { max-height: min(60vh, 560px); min-height: 5em; color: var(--text); background: var(--bg); }
+.cm-editor { height: var(--view-height, auto); max-height: var(--view-max, min(60vh, 560px)); min-height: 5em; color: var(--text); background: var(--bg); }
 .cm-editor.cm-focused { outline: 2px solid var(--accent); outline-offset: -2px; }
 .cm-scroller { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.9rem; line-height: 1.6; }
 .cm-content { padding: 10px 4px; }
