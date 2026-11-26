@@ -4,6 +4,12 @@ A self-service page where people check the personal data in a text, document,
 scan, or image before they share it, choose what to mask, and copy the masked
 result.
 
+It is a wizard in three steps (text or document, choose what to mask, masked
+result), each filling the window and made for a monitor: on a screen 1280
+pixels wide or more, the review shows the summary and lists, the words found,
+and the preview side by side, each scrolling on its own. Narrower windows get
+two panes, then one column.
+
 1. Sign in with your LiteLLM virtual key.
 2. Paste text, or upload a document of up to 200 MiB (PDF, Word, Excel,
    PowerPoint, OpenDocument, RTF, HTML, email, or plain text) or an image (PNG,
@@ -89,6 +95,39 @@ reverse proxy in front of it and keep `PII_REVIEW_BIND=127.0.0.1`.
 The first build downloads the German and French spaCy pipelines (about
 1.1 GB). See `.env.example` for every setting.
 
+### NLP engine
+
+Presidio's NLP engine is a compose profile, set with `COMPOSE_PROFILES` in
+`.env` (exactly one; without a profile no analyzer starts, so add
+`COMPOSE_PROFILES=spacy` to an `.env` from before this setting):
+
+| Profile | Analyzer | Image |
+| --- | --- | --- |
+| `spacy` (default) | `presidio-analyzer`: spaCy's large English, German, and French pipelines | 2.2 GB |
+| `transformers` | `presidio-analyzer-transformers`: Presidio's Transformers engine. Small spaCy pipelines split the text and a multilingual Hugging Face NER model (`Davlan/xlm-roberta-base-ner-hrl` by default) finds names, organisations, and places; often better at names, and slower. PyTorch runs on the CPU. | larger: PyTorch (CPU) and the model |
+
+```sh
+COMPOSE_PROFILES=transformers docker compose up -d --build
+```
+
+Both answer as `presidio-analyzer` on the internal network, so the page needs
+no other setting. The pattern recognizers (email, phone, IBAN, UK numbers,
+addresses) are the same with either engine.
+
+The transformers image is built by the same Dockerfile with
+`NLP_ENGINE=transformers`: PyTorch and the other packages are pinned by hash
+in [`images/presidio-analyzer/transformers-requirements.txt`](images/presidio-analyzer/transformers-requirements.txt),
+the small spaCy pipelines in `transformers-spacy-models.txt`, and the build
+downloads the model from Hugging Face at `PRESIDIO_HF_MODEL_REVISION` (default
+`main`). It prints the commit it took (`Hugging Face model … at commit …`,
+also in `/app/models/ner/REVISION`): set `PRESIDIO_HF_MODEL_REVISION` to that
+commit to build the same model every time. The analyzer itself has no internet
+and loads only the model built in (`HF_HUB_OFFLINE=1`). It loads the model
+once per language, so it gets `PRESIDIO_TRANSFORMERS_MEMORY_LIMIT` (6 GB by
+default). Check the model's licence before you distribute the image. Presidio's
+third engine, Stanza, is not offered: Presidio 2.2.362 downloads Stanza's
+`resources.json` at every start, which the analyzer without internet cannot do.
+
 ### NVIDIA GPU (optional)
 
 On an x86_64 host with the NVIDIA driver and the
@@ -96,8 +135,10 @@ On an x86_64 host with the NVIDIA driver and the
 the analyzer can run its spaCy pipelines on a GPU:
 
 ```sh
-docker compose -f compose.yml -f compose.gpu.yml up -d --build
+COMPOSE_PROFILES=spacy docker compose -f compose.yml -f compose.gpu.yml up -d --build
 ```
+
+(spaCy engine only.)
 
 [`compose.gpu.yml`](compose.gpu.yml) builds the analyzer with CuPy and the
 CUDA 12 libraries ([`images/presidio-analyzer/gpu-requirements.txt`](images/presidio-analyzer/gpu-requirements.txt),

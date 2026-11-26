@@ -1,0 +1,23 @@
+# Presidio's Transformers NLP engine (spaCy tokenizes, a Hugging Face model
+# finds names, organisations, and places), installed only when the analyzer is
+# built with NLP_ENGINE=transformers (the compose profile `transformers`).
+# PyTorch is the CPU build from PyTorch's own index: the PyPI wheels bring the
+# CUDA libraries (several GB). The image's own packages (spaCy, numpy, ...)
+# are kept: compile against them, for x86_64 and arm64, with
+#   docker run --rm --entrypoint pip <base image> freeze > image-freeze.txt
+#   uv pip compile transformers-requirements.in -c image-freeze.txt \
+#     --python-version 3.12 --python-platform x86_64-manylinux_2_28 \
+#     --index-url https://pypi.org/simple \
+#     --extra-index-url https://download.pytorch.org/whl/cpu \
+#     --index-strategy unsafe-best-match --generate-hashes --no-header \
+#     -o x86_64.txt
+# and again with aarch64-manylinux_2_28 (-o aarch64.txt). Both must give the
+# same versions; transformers-requirements.txt lists them with the hashes of
+# both, after an --extra-index-url line for PyTorch's index.
+# spacy-huggingface-pipelines 0.0.4 needs transformers 4.x. sentencepiece and
+# protobuf read the tokenizer of models that ship no tokenizer.json.
+transformers==4.57.6
+spacy-huggingface-pipelines==0.0.4
+torch==2.15.0+cpu
+sentencepiece==0.2.3
+protobuf==7.36.2

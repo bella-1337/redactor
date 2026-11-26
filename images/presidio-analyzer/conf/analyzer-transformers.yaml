@@ -1,0 +1,42 @@
+# NLP configuration of the analyzer built with NLP_ENGINE=transformers (the
+# compose profile `transformers`): small spaCy pipelines split the text into
+# words, and a multilingual Hugging Face NER model finds names, organisations,
+# and places in English, German, and French. The model is built into the image
+# at /app/models/ner (images/presidio-analyzer/Dockerfile, HF_MODEL), so the
+# analyzer needs no internet. analyzer.yaml is the spaCy configuration.
+nlp_engine_name: transformers
+models:
+  - lang_code: en
+    model_name:
+      spacy: en_core_web_sm
+      transformers: /app/models/ner
+  - lang_code: de
+    model_name:
+      spacy: de_core_news_sm
+      transformers: /app/models/ner
+  - lang_code: fr
+    model_name:
+      spacy: fr_core_news_sm
+      transformers: /app/models/ner
+
+ner_model_configuration:
+  labels_to_ignore:
+    - O
+    # The catch-all label of some models (events, works, nationalities).
+    - MISC
+  # Long texts are read in overlapping windows of the model's length.
+  aggregation_strategy: max
+  stride: 16
+  alignment_mode: expand
+  model_to_presidio_entity_mapping:
+    PER: PERSON
+    PERSON: PERSON
+    ORG: ORGANIZATION
+    ORGANIZATION: ORGANIZATION
+    LOC: LOCATION
+    LOCATION: LOCATION
+    GPE: LOCATION
+    DATE: DATE_TIME
+    TIME: DATE_TIME
+  low_confidence_score_multiplier: 0.4
+  low_score_entity_names: []

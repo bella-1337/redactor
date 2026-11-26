@@ -45,6 +45,8 @@ CPython (python-build-standalone 3.12.14) by uv's own checksums.
 Startup takes about 6 seconds on an M-series Mac once the models are in the
 disk cache, and about 35 seconds on a cold start or when run straight from the
 `.dmg`, while the system reads 1.7 GB of models. A splash screen shows progress.
+The window opens maximized, so the review's three panes fit side by side, and
+is 1440 × 900 when restored.
 
 ### Differences from the compose deployment
 
@@ -112,8 +114,41 @@ On first start the app writes a commented settings file:
 
 It takes the same `KEY=VALUE` lines as `.env.example`: language, limits, the
 optional local model (for example Ollama on `http://127.0.0.1:11434/v1`), and
-`PII_REVIEW_GATEWAYS`. Service URLs and the port are the app's own. Restart the
-app after a change.
+`PII_REVIEW_GATEWAYS`. Service URLs and the port are the app's own.
+
+The **Settings** menu in the app's native menu bar (only in the desktop app;
+the page has no settings) changes the file and restarts the engine:
+
+| Menu item | What it does |
+| --- | --- |
+| Detection Engine > Built-in spaCy, Presidio Analyzer on This Computer (Port 5002) | removes `PII_REVIEW_ANALYZER_URL`, or sets it to `http://127.0.0.1:5002`; "Other" is ticked when the file names another analyzer |
+| Detection Language > English, German, French | `PII_REVIEW_LANGUAGE` |
+| Local Model > Off, Ollama on This Computer | removes the `PII_REVIEW_ASSIST_*` lines, or sets them to Ollama with `qwen3.5:4b`; "Other" is ticked when the file names another model |
+| Run Language Models On > GPU When Available, CPU Only (Windows, Linux) | `PII_REVIEW_DEVICE` |
+| Edit Settings File… (Ctrl+, / ⌘,) | opens the file in the system's text editor, for everything else |
+| Show Engine Log | opens `engine.log` |
+| Reset Settings to Defaults | renames the file to `settings.env.bak` and writes a new one from the template |
+| Restart Engine (Ctrl+Shift+R / ⇧⌘R) | stops the engine and starts it again with the file as it is; the text under review is cleared |
+
+The app bundles only the spaCy engine. To use another NLP engine, point it at
+a Presidio analyzer that has one (`PII_REVIEW_ANALYZER_URL`), for example the
+repository's transformers analyzer image (see the main README, "NLP engine")
+on this computer:
+
+```sh
+docker run --rm -p 127.0.0.1:5002:3000 --read-only --tmpfs /tmp pii-review-presidio-analyzer:2.2.362-2-transformers
+```
+
+Then choose Detection Engine > Presidio Analyzer on This Computer and Restart
+Engine. The app loads no language models of its own then (it starts in a few
+seconds and uses less memory), and still masks in its own process. The text
+is sent to that analyzer unmasked: use one on this computer or a private
+network. If it does not answer when the engine starts, the window says so.
+
+A change applies when the engine restarts; until then the last item reads
+"Restart Engine to Apply Changes". The ticks follow the file, also after it
+is edited by hand (when the window comes back to the front). The menu keeps
+the rest of the file as it is: comments, other settings, and their order.
 
 The engine's log (no content, file names, or keys) is `engine.log` in
 `~/Library/Logs/io.github.bella-1337.pii-review/` on macOS, and in the app's
@@ -134,7 +169,10 @@ npm run build       # all installers for this platform, in src-tauri/target/rele
 
 `npx tauri build --bundles dmg` (or `nsis`, `msi`, `deb`, `rpm`, `appimage`)
 builds one kind. `npm run dev` runs the app from source with the staged
-runtime.
+runtime; it first copies `app/pii_review` and the configuration into it
+(`npm run sync-app`, `build_runtime.py --app-only`, no downloads), so the
+engine is the one in the source and not the one from when the runtime was
+staged.
 
 CI: [`.github/workflows/desktop.yml`](../.github/workflows/desktop.yml) runs
 the tests, builds every installer on its own runner, and uploads them as

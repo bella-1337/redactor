@@ -24,6 +24,10 @@ Differences from the compose deployment:
 - On Windows and Linux x64, the spaCy pipelines run on an NVIDIA GPU when one
   works, once the app has downloaded its GPU pack (see pii_review.gpu). The
   shell passes the pack's folder as --gpu-dir.
+- PII_REVIEW_ANALYZER_URL in the settings file points the app at a Presidio
+  analyzer elsewhere instead (for example one with another NLP engine, such as
+  the compose profile `transformers`): then the built-in pipelines are not
+  loaded, and only masking runs in this process.
 """
 
 from __future__ import annotations
@@ -67,6 +71,7 @@ from pii_review.review import (
     Transport,
     XbergExtractor,
     settings_from_environment,
+    urllib_transport,
 )
 from pii_review.server import Service, make_server
 
@@ -77,9 +82,11 @@ ANALYZER_URL = "http://analyzer.in-process.invalid"
 ANONYMIZER_URL = "http://anonymizer.in-process.invalid"
 
 # Settings a user may change in the settings file (or the environment). The
-# service URLs, port, and authentication mode are the app's own.
+# anonymizer and Xberg URLs, the port, and the authentication mode are the
+# app's own; the analyzer is built in unless PII_REVIEW_ANALYZER_URL names one.
 USER_SETTINGS = frozenset(
     {
+        "PII_REVIEW_ANALYZER_URL",
         "PII_REVIEW_GATEWAYS",
         "PII_REVIEW_LANGUAGE",
         "PII_REVIEW_MAX_TEXT_BYTES",
@@ -154,7 +161,9 @@ def settings_from_values(user: Mapping[str, str], xberg_url: str) -> Settings:
     values["PII_REVIEW_AUTH"] = "gateway" if gateways else "local"
     # One analysis at a time: the in-process analyzer serves one piece at once.
     values.setdefault("PII_REVIEW_ANALYZE_PARALLEL", "1")
-    values["PII_REVIEW_ANALYZER_URL"] = ANALYZER_URL
+    # An analyzer elsewhere, or the built-in one (empty).
+    if not values.get("PII_REVIEW_ANALYZER_URL", "").strip():
+        values["PII_REVIEW_ANALYZER_URL"] = ANALYZER_URL
     values["PII_REVIEW_ANONYMIZER_URL"] = ANONYMIZER_URL
     values["PII_REVIEW_XBERG_URL"] = xberg_url
     settings = settings_from_environment(values)
@@ -174,6 +183,14 @@ def _offline_tldextract() -> None:
     import tldextract.tldextract as module
 
     module.TLD_EXTRACTOR = tldextract.TLDExtract(suffix_list_urls=(), cache_dir=None)
+
+
+def load_anonymizer() -> Any:
+    """Presidio's anonymizer alone, for an analyzer elsewhere: quick, no models."""
+    from presidio_anonymizer import AnonymizerEngine
+
+    logging.getLogger("presidio-anonymizer").setLevel(logging.WARNING)
+    return AnonymizerEngine()
 
 
 def load_presidio(config_dir: Path) -> tuple[Any, Any]:
@@ -275,6 +292,47 @@ class InProcessPresidio:
             operators=AppEntitiesConvertor.operators_config_from_json(request.get("anonymizers")),
         )
         return result.to_json()
+
+
+def external_analyzer(settings: Settings) -> str:
+    """The URL of the analyzer elsewhere, or "" for the built-in one."""
+    return "" if settings.analyzer_url == ANALYZER_URL else settings.analyzer_url
+
+
+class ExternalAnalyzer:
+    """A `review.Transport`: analysis goes to a Presidio analyzer over HTTP,
+    masking to the anonymizer in this process."""
+
+    def __init__(self, analyzer_url: str, local: Transport, http: Transport = urllib_transport) -> None:
+        self.prefix = f"{analyzer_url}/"
+        self.local = local
+        self.http = http
+
+    def __call__(
+        self, method: str, url: str, headers: Mapping[str, str], body: Body, timeout: float
+    ) -> HttpResponse:
+        if url.startswith(self.prefix):
+            return self.http(method, url, headers, body, timeout)
+        return self.local(method, url, headers, body, timeout)
+
+
+def wait_for_analyzer(analyzer_url: str, seconds: float = 10.0) -> None:
+    """Raise unless the analyzer answers its /health in time."""
+    deadline = time.monotonic() + seconds
+    while True:
+        try:
+            with urllib.request.urlopen(f"{analyzer_url}/health", timeout=3) as response:
+                if response.status == 200:
+                    return
+        except OSError:
+            pass
+        if time.monotonic() >= deadline:
+            raise AnalyzerUnreachable(analyzer_url)
+        time.sleep(0.5)
+
+
+class AnalyzerUnreachable(RuntimeError):
+    pass
 
 
 # ---------------------------------------------------------------------------
@@ -498,19 +556,37 @@ def main(argv: list[str] | None = None) -> int:
         if hasattr(signal, name):
             signal.signal(getattr(signal, name), lambda *_: threading.Thread(target=stop, daemon=True).start())
 
+    remote = external_analyzer(settings)
     try:
         emit(status="Starting the document reader…")
         xberg.start()
-        device, download_pack = pick_device(device_choice, pack, probe_started)
-        if stopped.is_set():
-            return 0
-        LOG.info("language models: %s", device.describe())
-        where = f" on the GPU ({device.gpu})" if device.gpu else ""
-        emit(status=f"Loading the English, German, and French language models{where}…")
-        analyzer, anonymizer, use_device, device = load_models(resources / "config" / "presidio", device)
+        if remote:
+            # Another analyzer does the detection: no pipelines, no GPU here.
+            emit(status=f"Connecting to the Presidio analyzer at {remote}…")
+            wait_for_analyzer(remote)
+            analyzer, anonymizer, use_device = None, load_anonymizer(), None
+            device, download_pack = Device(None, f"in the analyzer at {remote}"), False
+        else:
+            device, download_pack = pick_device(device_choice, pack, probe_started)
+            if stopped.is_set():
+                return 0
+            LOG.info("language models: %s", device.describe())
+            where = f" on the GPU ({device.gpu})" if device.gpu else ""
+            emit(status=f"Loading the English, German, and French language models{where}…")
+            analyzer, anonymizer, use_device, device = load_models(resources / "config" / "presidio", device)
         xberg.wait_ready()
     except Stopping:
         return 0
+    except AnalyzerUnreachable:
+        if stopped.is_set():
+            return 0
+        LOG.error("start failed: the analyzer at %s does not answer", remote)
+        emit(
+            error=f"The Presidio analyzer at {remote} does not answer. Start it, or choose "
+            "Settings > Detection Engine > Built-in spaCy; then Settings > Restart Engine."
+        )
+        stop()
+        return 1
     except Exception as error:
         if stopped.is_set():
             return 0
@@ -520,7 +596,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     token = secrets.token_urlsafe(32)
-    presidio = InProcessPresidio(analyzer, anonymizer, use_device)
+    presidio: Transport = InProcessPresidio(analyzer, anonymizer, use_device)
+    if remote:
+        presidio = ExternalAnalyzer(remote, presidio)
     server = make_server(build_desktop_service(settings, presidio, token), "127.0.0.1")
     with lock:
         if stopped.is_set():
